@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  ENGINEER
+  FINANCE
+
+  @@map("user_role")
+}
+
+enum ProductStatus {
+  ON_TRACK
+  DELAYED
+  BLOCKED
+
+  @@map("product_status")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  email        String   @unique
+  role         UserRole
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  ownedProducts          Product[]              @relation("ProductOwner")
+  createdVersions        ProductVersion[]       @relation("VersionCreator")
+  stageResponsibilities  ProductStageHistory[]  @relation("StageResponsible")
+
+  @@map("users")
+}
+
+// Stored as data (not a hardcoded enum) so the workflow's stages and order
+// can evolve without a code change. See docs/architecture/0003.
+model StageDefinition {
+  id                   String @id @default(uuid()) @db.Uuid
+  name                 String
+  sequenceOrder        Int    @unique @map("sequence_order")
+  expectedDurationDays Int    @map("expected_duration_days")
+
+  products     Product[]
+  stageHistory ProductStageHistory[]
+
+  @@map("stage_definitions")
+}
+
+model Product {
+  id                     String          @id @default(uuid()) @db.Uuid
+  name                   String
+  description            String?
+  ownerId                String          @map("owner_id") @db.Uuid
+  owner                  User            @relation("ProductOwner", fields: [ownerId], references: [id])
+  currentStageId         String?         @map("current_stage_id") @db.Uuid
+  currentStage           StageDefinition? @relation(fields: [currentStageId], references: [id])
+  currentVersion         Int             @default(1) @map("current_version")
+  status                 ProductStatus   @default(ON_TRACK)
+  startDate              DateTime?       @map("start_date")
+  expectedCompletionDate DateTime?       @map("expected_completion_date")
+  actualCompletionDate   DateTime?       @map("actual_completion_date")
+  createdAt              DateTime        @default(now()) @map("created_at")
+
+  versions     ProductVersion[]
+  stageHistory ProductStageHistory[]
+
+  @@map("products")
+}
+
+// Manufacturing orders (Module 2) will pin to a specific ProductVersion, so
+// a new version created later doesn't retroactively change the spec on an
+// existing order.
+model ProductVersion {
+  id            String   @id @default(uuid()) @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
+  product       Product  @relation(fields: [productId], references: [id])
+  versionNumber Int      @map("version_number")
+  spec          String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdById   String   @map("created_by") @db.Uuid
+  createdBy     User     @relation("VersionCreator", fields: [createdById], references: [id])
+
+  @@unique([productId, versionNumber])
+  @@map("product_versions")
+}
+
+// Audit trail of stage transitions, and the source of truth for delay
+// computation (compare enteredAt + stage.expectedDurationDays against
+// actual/current date).
+model ProductStageHistory {
+  id                  String          @id @default(uuid()) @db.Uuid
+  productId           String          @map("product_id") @db.Uuid
+  product             Product         @relation(fields: [productId], references: [id])
+  stageId             String          @map("stage_id") @db.Uuid
+  stage               StageDefinition @relation(fields: [stageId], references: [id])
+  enteredAt           DateTime        @default(now()) @map("entered_at")
+  exitedAt            DateTime?       @map("exited_at")
+  actualDurationDays  Int?            @map("actual_duration_days")
+  delayed             Boolean         @default(false)
+  delayReason         String?         @map("delay_reason")
+  responsibleUserId   String?         @map("responsible_user_id") @db.Uuid
+  responsibleUser     User?           @relation("StageResponsible", fields: [responsibleUserId], references: [id])
+
+  @@map("product_stage_history")
+}
