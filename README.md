@@ -87,16 +87,23 @@ Prerequisites: Node.js 22+, Docker (for Postgres).
 ```bash
 npm install
 
-# Start Postgres (and api/web) via Docker Compose
-docker compose up
+# Copy the env template and adjust DATABASE_URL if not using Docker Compose
+cp apps/api/.env.example apps/api/.env
 
-# Or run the apps individually against a local Postgres:
+# Start Postgres
+docker compose up -d postgres
+
+# Apply migrations and seed the workflow stage definitions
+npm run db:migrate --workspace apps/api
+npm run db:seed --workspace apps/api
+
+# Run the apps
 npm run dev --workspace apps/api
 npm run dev --workspace apps/web
 ```
 
-Copy `apps/api/.env.example` to `apps/api/.env` and adjust `DATABASE_URL` if
-not using Docker Compose.
+`docker compose up` also builds and runs `api`/`web` themselves, if you'd
+rather run everything in containers.
 
 ### Quality checks
 
