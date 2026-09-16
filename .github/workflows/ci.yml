@@ -9,6 +9,22 @@ on:
 jobs:
   lint-typecheck-test:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://kyvera:kyvera@localhost:5432/kyvera?schema=public
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: kyvera
+          POSTGRES_PASSWORD: kyvera
+          POSTGRES_DB: kyvera
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U kyvera"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -27,6 +43,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Apply Prisma migrations
+        run: npm run db:deploy --workspace apps/api
 
       - name: Test
         run: npm run test
