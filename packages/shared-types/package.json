@@ -1,0 +1,14 @@
+{
+  "name": "@kyvera/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript types and enums shared between apps/api and apps/web",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.3"
+  }
+}
