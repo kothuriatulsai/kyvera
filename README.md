@@ -80,6 +80,21 @@ Backend request flow: `routes → controllers → services → repositories (Pri
 See `docs/architecture/` for the reasoning behind these decisions and
 `docs/journal/` for a running build log.
 
+## API (Module 1)
+
+No auth yet — `ownerId`/`responsibleUserId` reference existing `users` rows
+directly (seeded via `db:seed`) until the JWT/role-based auth module lands.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/products` | List all products. |
+| `POST` | `/products` | Create a product. Also creates its v1 `ProductVersion` and opens the first `ProductStageHistory` entry. |
+| `GET` | `/products/:id` | Full detail: owner, current stage, versions, stage history. |
+| `PATCH` | `/products/:id` | Update `name`/`description`/`ownerId`/`status`/`expectedCompletionDate`/`actualCompletionDate`. |
+| `DELETE` | `/products/:id` | Deletes the product and its versions/stage history. |
+| `POST` | `/products/:id/versions` | Create a new `ProductVersion`, bumping `currentVersion`. |
+| `POST` | `/products/:id/transition` | Move to the next (`direction: "forward"`, default) or previous (`"backward"`) stage. Can't skip stages; moving backward requires a `reason`. |
+
 ## Local setup
 
 Prerequisites: Node.js 22+, Docker (for Postgres).
