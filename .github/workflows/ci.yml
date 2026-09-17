@@ -47,5 +47,8 @@ jobs:
       - name: Apply Prisma migrations
         run: npm run db:deploy --workspace apps/api
 
+      - name: Seed database
+        run: npm run db:seed --workspace apps/api
+
       - name: Test
         run: npm run test
