@@ -1,5 +1,10 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
+
+// Accepted by repository functions so a service can pass a $transaction
+// callback's `tx` for atomic multi-step writes, or fall back to the shared
+// singleton for simple reads.
+export type Db = PrismaClient | Prisma.TransactionClient;
 
 declare global {
   // eslint-disable-next-line no-var -- `var` is required for global augmentation
