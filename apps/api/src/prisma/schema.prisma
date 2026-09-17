@@ -79,7 +79,7 @@ model Product {
 model ProductVersion {
   id            String   @id @default(uuid()) @db.Uuid
   productId     String   @map("product_id") @db.Uuid
-  product       Product  @relation(fields: [productId], references: [id])
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
   versionNumber Int      @map("version_number")
   spec          String?
   createdAt     DateTime @default(now()) @map("created_at")
@@ -96,7 +96,7 @@ model ProductVersion {
 model ProductStageHistory {
   id                  String          @id @default(uuid()) @db.Uuid
   productId           String          @map("product_id") @db.Uuid
-  product             Product         @relation(fields: [productId], references: [id])
+  product             Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
   stageId             String          @map("stage_id") @db.Uuid
   stage               StageDefinition @relation(fields: [stageId], references: [id])
   enteredAt           DateTime        @default(now()) @map("entered_at")
