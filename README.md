@@ -90,10 +90,41 @@ directly (seeded via `db:seed`) until the JWT/role-based auth module lands.
 | `GET` | `/products` | List all products. |
 | `POST` | `/products` | Create a product. Also creates its v1 `ProductVersion` and opens the first `ProductStageHistory` entry. |
 | `GET` | `/products/:id` | Full detail: owner, current stage, versions, stage history. |
+| `GET` | `/products/:id/delay` | Live per-stage delay breakdown (status, elapsed/expected days, delay days) plus the same projected `expectedCompletionDate` stored on the product. |
 | `PATCH` | `/products/:id` | Update `name`/`description`/`ownerId`/`status`/`expectedCompletionDate`/`actualCompletionDate`. |
 | `DELETE` | `/products/:id` | Deletes the product and its versions/stage history. |
 | `POST` | `/products/:id/versions` | Create a new `ProductVersion`, bumping `currentVersion`. |
-| `POST` | `/products/:id/transition` | Move to the next (`direction: "forward"`, default) or previous (`"backward"`) stage. Can't skip stages; moving backward requires a `reason`. |
+| `POST` | `/products/:id/transition` | Move to the next (`direction: "forward"`, default) or previous (`"backward"`) stage. Can't skip stages; moving backward requires a `reason`. Recomputes and persists `expectedCompletionDate`/`status` (see below). |
+
+`expectedCompletionDate` is derived, not a free-form field: on creation (unless
+you pass an explicit override) and on every transition, it's recomputed from
+`startDate` + each stage's actual duration (completed), live elapsed-or-expected
+duration (in progress), or expected duration (not yet reached) — see
+`services/delayComputationService.ts`. `status` is kept in sync the same way
+(`ON_TRACK`/`DELAYED`), except once a product is manually set to `BLOCKED`,
+which the recompute won't overwrite.
+
+Because that persisted `status` only refreshes on creation/transition, a
+product that has quietly sat in a stage past its expected duration still reads
+`ON_TRACK` in the database until its next transition. `GET /products/:id/delay`
+is always live, so the frontend uses it (not the stored `status`) to decide
+what counts as delayed.
+
+| Method | Path | Notes |
+|---|---|---|
+| `GET` | `/stages` | The workflow's stage definitions, in `sequenceOrder`. |
+
+## Frontend (Module 1)
+
+`apps/web` is a read-only React + Vite app (React Router) over the API above,
+using response types from `packages/shared-types`. Set `VITE_API_URL` to point
+it at the API (defaults to `http://localhost:4000`).
+
+| Route | View |
+|---|---|
+| `/` | Product list — stage, owner, live status, projected completion. |
+| `/delayed` | Products that are currently delayed, worst first. |
+| `/products/:id` | Detail: stage timeline with per-stage delay, stage history, versions. |
 
 ## Local setup
 
