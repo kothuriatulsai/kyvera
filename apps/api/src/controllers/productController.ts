@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { ProductStatus } from "@prisma/client";
 import * as productService from "../services/productService";
 import * as stageTransitionService from "../services/stageTransitionService";
+import * as productDelayService from "../services/productDelayService";
 import { ValidationError } from "../services/errors";
 import { asyncHandler } from "./asyncHandler";
 
@@ -48,6 +49,11 @@ export const listProducts = asyncHandler(async (_req: Request, res: Response) =>
 export const getProduct = asyncHandler(async (req: Request, res: Response) => {
   const product = await productService.getProductById(req.params.id);
   res.json(product);
+});
+
+export const getProductDelay = asyncHandler(async (req: Request, res: Response) => {
+  const delay = await productDelayService.computeDelayForProduct(req.params.id);
+  res.json(delay);
 });
 
 export const createProduct = asyncHandler(async (req: Request, res: Response) => {
