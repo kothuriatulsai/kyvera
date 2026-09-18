@@ -60,6 +60,32 @@ describe("Product API", () => {
     productId = res.body.id;
   });
 
+  it("auto-projects expectedCompletionDate from the full stage timeline", async () => {
+    const [product, stages] = await Promise.all([
+      request(app).get(`/products/${productId}`),
+      prisma.stageDefinition.findMany(),
+    ]);
+
+    const totalExpectedDays = stages.reduce((sum, s) => sum + s.expectedDurationDays, 0);
+    const startDate = new Date(product.body.startDate);
+    const expectedCompletionDate = new Date(product.body.expectedCompletionDate);
+    const projectedDays = Math.round(
+      (expectedCompletionDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24),
+    );
+
+    expect(projectedDays).toBe(totalExpectedDays);
+  });
+
+  it("exposes the per-stage delay breakdown via GET /products/:id/delay", async () => {
+    const res = await request(app).get(`/products/${productId}/delay`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.delayed).toBe(false);
+    expect(res.body.totalDelayDays).toBe(0);
+    expect(res.body.stages[0]).toMatchObject({ sequenceOrder: 1, status: "in_progress" });
+    expect(res.body.stages[1]).toMatchObject({ sequenceOrder: 2, status: "not_started" });
+  });
+
   it("rejects creation with an unknown ownerId", async () => {
     const res = await request(app)
       .post("/products")
