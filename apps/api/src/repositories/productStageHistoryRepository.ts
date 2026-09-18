@@ -12,6 +12,14 @@ export function findOpenEntry(productId: string, stageId: string, db: Db = prism
   });
 }
 
+export function findAllByProduct(productId: string, db: Db = prisma) {
+  return db.productStageHistory.findMany({
+    where: { productId },
+    include: { stage: true },
+    orderBy: { enteredAt: "asc" },
+  });
+}
+
 export function closeEntry(
   id: string,
   data: Pick<

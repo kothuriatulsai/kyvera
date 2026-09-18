@@ -5,6 +5,7 @@ import * as userRepository from "../repositories/userRepository";
 import { prisma } from "../repositories/prismaClient";
 import { diffInDays } from "./dateUtils";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
+import { recomputeAndPersistProductDelay } from "./productDelayService";
 
 export type TransitionDirection = "forward" | "backward";
 
@@ -98,6 +99,8 @@ export async function transitionProduct(productId: string, input: TransitionProd
       { currentStage: { connect: { id: targetStage.id } } },
       tx,
     );
+
+    await recomputeAndPersistProductDelay(productId, tx);
 
     return productRepository.findById(productId, tx);
   });

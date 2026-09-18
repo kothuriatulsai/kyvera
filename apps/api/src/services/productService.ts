@@ -6,6 +6,7 @@ import * as stageDefinitionRepository from "../repositories/stageDefinitionRepos
 import * as userRepository from "../repositories/userRepository";
 import { prisma } from "../repositories/prismaClient";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
+import { recomputeAndPersistProductDelay } from "./productDelayService";
 
 export interface CreateProductInput {
   name: string;
@@ -87,6 +88,14 @@ export async function createProduct(input: CreateProductInput) {
       },
       tx,
     );
+
+    // Only auto-project the completion date when the caller didn't set an
+    // explicit target — an explicit expectedCompletionDate at creation time
+    // is a manually-set goal, not something step 4's cascade should override
+    // before any stage timing has actually happened.
+    if (input.expectedCompletionDate === undefined) {
+      await recomputeAndPersistProductDelay(product.id, tx);
+    }
 
     return productRepository.findById(product.id, tx);
   });
