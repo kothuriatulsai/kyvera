@@ -91,7 +91,7 @@ directly (seeded via `db:seed`) until the JWT/role-based auth module lands.
 | `POST` | `/products` | Create a product. Also creates its v1 `ProductVersion` and opens the first `ProductStageHistory` entry. |
 | `GET` | `/products/:id` | Full detail: owner, current stage, versions, stage history, approvals; live `status`/`delay` as above. |
 | `GET` | `/products/:id/delay` | Live per-stage delay breakdown (status, elapsed/expected days, delay days) plus the same projected `expectedCompletionDate` stored on the product. |
-| `PATCH` | `/products/:id` | Update `name`/`description`/`ownerId`/`status`/`expectedCompletionDate`/`actualCompletionDate`. |
+| `PATCH` | `/products/:id` | Update `name`/`description`/`ownerId`/`status`/`expectedCompletionDate`/`actualCompletionDate`. `status` is derived from delay, so only `BLOCKED` can be set manually; `DELAYED` is rejected with a `400`, and `ON_TRACK` is accepted only to clear a `BLOCKED` product (the stored value is then re-derived). |
 | `DELETE` | `/products/:id` | Deletes the product and its versions/stage history. |
 | `POST` | `/products/:id/versions` | Create a new `ProductVersion`, bumping `currentVersion`. |
 | `POST` | `/products/:id/transition` | Move to the next (`direction: "forward"`, default) or previous (`"backward"`) stage. Can't skip stages; moving backward requires a `reason`. Moving into the final (Approval) stage requires an `approval` decision (see below). Recomputes and persists `expectedCompletionDate`/`status`. |
