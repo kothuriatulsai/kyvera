@@ -1,5 +1,8 @@
 import "dotenv/config";
 import { prisma } from "../repositories/prismaClient";
+import { hashPassword, isArgon2Hash } from "../services/passwordService";
+
+const DEFAULT_SEED_PASSWORD = "kyvera-dev-password";
 
 // Placeholder durations — tune once real stage timing data exists.
 const stages = [
@@ -33,11 +36,23 @@ async function main() {
     });
   }
 
+  // Seeded users can log in with this password. It is dev data — a well-known
+  // value in a public repo — so never seed a shared environment with it.
+  const seedPasswordHash = await hashPassword(process.env.SEED_USER_PASSWORD ?? DEFAULT_SEED_PASSWORD);
+
   for (const user of users) {
+    const existing = await prisma.user.findUnique({ where: { email: user.email } });
+
     await prisma.user.upsert({
       where: { email: user.email },
-      update: user,
-      create: { ...user, passwordHash: "unset-no-auth-module-yet" },
+      // Before auth existed the seed stored a plain-text placeholder here.
+      // Replace anything that isn't a real hash, but leave a real one alone so
+      // re-seeding doesn't reset a password someone deliberately changed.
+      update:
+        existing && !isArgon2Hash(existing.passwordHash)
+          ? { ...user, passwordHash: seedPasswordHash }
+          : user,
+      create: { ...user, passwordHash: seedPasswordHash },
     });
   }
 }
