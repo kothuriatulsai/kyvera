@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
+import { authedAgent } from "./helpers/auth";
 
 const app = createApp();
+const api = authedAgent(app);
 
 let managerId: string;
 let adminId: string;
@@ -28,7 +29,7 @@ async function createUser(name: string, role: "ADMIN" | "MANAGER" | "ENGINEER") 
 
 // Creates a product and walks it forward to the stage just before Approval.
 async function createProductAtFinalReview(): Promise<string> {
-  const created = await request(app)
+  const created = await api
     .post("/products")
     .send({ name: "Approval Test Widget", ownerId: managerId, spec: "v1 spec" });
   expect(created.status).toBe(201);
@@ -37,7 +38,7 @@ async function createProductAtFinalReview(): Promise<string> {
   createdProductIds.push(productId);
 
   for (let order = 1; order < finalSequenceOrder - 1; order++) {
-    const step = await request(app).post(`/products/${productId}/transition`).send({});
+    const step = await api.post(`/products/${productId}/transition`).send({});
     expect(step.status).toBe(200);
   }
   return productId;
@@ -73,12 +74,12 @@ describe("Approval flow", () => {
   it("requires an approval decision to enter the Approval stage", async () => {
     const productId = await createProductAtFinalReview();
 
-    const res = await request(app).post(`/products/${productId}/transition`).send({});
+    const res = await api.post(`/products/${productId}/transition`).send({});
 
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/approval decision is required/i);
 
-    const product = await request(app).get(`/products/${productId}`);
+    const product = await api.get(`/products/${productId}`);
     expect(product.body.currentStage.sequenceOrder).toBe(finalSequenceOrder - 1);
     expect(await approvalsFor(productId)).toHaveLength(0);
   });
@@ -86,7 +87,7 @@ describe("Approval flow", () => {
   it("moves forward into Approval and records the decision when APPROVED", async () => {
     const productId = await createProductAtFinalReview();
 
-    const res = await request(app)
+    const res = await api
       .post(`/products/${productId}/transition`)
       .send({ approval: { decision: "APPROVED", decidedById: adminId, notes: "ship it" } });
 
@@ -116,7 +117,7 @@ describe("Approval flow", () => {
   it("sends the product back a stage and records the decision when REJECTED", async () => {
     const productId = await createProductAtFinalReview();
 
-    const res = await request(app)
+    const res = await api
       .post(`/products/${productId}/transition`)
       .send({
         approval: { decision: "REJECTED", decidedById: managerId, notes: "fails drop test" },
@@ -141,7 +142,7 @@ describe("Approval flow", () => {
   it("requires notes to reject", async () => {
     const productId = await createProductAtFinalReview();
 
-    const res = await request(app)
+    const res = await api
       .post(`/products/${productId}/transition`)
       .send({ approval: { decision: "REJECTED", decidedById: managerId } });
 
@@ -152,7 +153,7 @@ describe("Approval flow", () => {
   it("returns 403 when a non-admin/manager submits a decision", async () => {
     const productId = await createProductAtFinalReview();
 
-    const res = await request(app)
+    const res = await api
       .post(`/products/${productId}/transition`)
       .send({
         approval: { decision: "REJECTED", decidedById: engineerId, notes: "not my call" },
@@ -161,7 +162,7 @@ describe("Approval flow", () => {
     expect(res.status).toBe(403);
 
     // Nothing moved and nothing was recorded.
-    const product = await request(app).get(`/products/${productId}`);
+    const product = await api.get(`/products/${productId}`);
     expect(product.body.currentStage.sequenceOrder).toBe(finalSequenceOrder - 1);
     expect(await approvalsFor(productId)).toHaveLength(0);
   });
@@ -169,7 +170,7 @@ describe("Approval flow", () => {
   it("rejects an unknown decider and an invalid decision", async () => {
     const productId = await createProductAtFinalReview();
 
-    const unknown = await request(app)
+    const unknown = await api
       .post(`/products/${productId}/transition`)
       .send({
         approval: {
@@ -179,7 +180,7 @@ describe("Approval flow", () => {
       });
     expect(unknown.status).toBe(400);
 
-    const invalid = await request(app)
+    const invalid = await api
       .post(`/products/${productId}/transition`)
       .send({ approval: { decision: "MAYBE", decidedById: adminId } });
     expect(invalid.status).toBe(400);
@@ -188,13 +189,13 @@ describe("Approval flow", () => {
   });
 
   it("rejects an approval sent with any other transition", async () => {
-    const created = await request(app)
+    const created = await api
       .post("/products")
       .send({ name: "Too Early Widget", ownerId: managerId });
     const productId = created.body.id as string;
     createdProductIds.push(productId);
 
-    const res = await request(app)
+    const res = await api
       .post(`/products/${productId}/transition`)
       .send({ approval: { decision: "APPROVED", decidedById: adminId } });
 
@@ -205,19 +206,19 @@ describe("Approval flow", () => {
   it("keeps a rejection as history and pins a later approval to the newer version", async () => {
     const productId = await createProductAtFinalReview();
 
-    await request(app)
+    await api
       .post(`/products/${productId}/transition`)
       .send({ approval: { decision: "REJECTED", decidedById: adminId, notes: "needs v2" } });
 
-    const versioned = await request(app)
+    const versioned = await api
       .post(`/products/${productId}/versions`)
       .send({ spec: "v2 spec" });
     expect(versioned.status).toBe(201);
 
     // Modification -> Final Review, then approve.
-    const back = await request(app).post(`/products/${productId}/transition`).send({});
+    const back = await api.post(`/products/${productId}/transition`).send({});
     expect(back.status).toBe(200);
-    const approved = await request(app)
+    const approved = await api
       .post(`/products/${productId}/transition`)
       .send({ approval: { decision: "APPROVED", decidedById: adminId } });
     expect(approved.status).toBe(200);

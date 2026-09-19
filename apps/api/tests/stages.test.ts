@@ -1,9 +1,10 @@
-import request from "supertest";
 import { afterAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
+import { authedAgent } from "./helpers/auth";
 
 const app = createApp();
+const api = authedAgent(app);
 
 afterAll(async () => {
   await prisma.$disconnect();
@@ -11,7 +12,7 @@ afterAll(async () => {
 
 describe("Stage API", () => {
   it("lists workflow stages in sequence order", async () => {
-    const res = await request(app).get("/stages");
+    const res = await api.get("/stages");
 
     expect(res.status).toBe(200);
     expect(res.body.length).toBeGreaterThan(0);
