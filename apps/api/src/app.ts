@@ -23,6 +23,9 @@ export function createApp(): Express {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Express requires 4-arg error middleware
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof AppError) {
+      if (err.statusCode === 401) {
+        res.set("WWW-Authenticate", "Bearer");
+      }
       res.status(err.statusCode).json({ error: err.message });
       return;
     }
