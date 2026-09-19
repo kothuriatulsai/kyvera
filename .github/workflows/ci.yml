@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: postgresql://kyvera:kyvera@localhost:5432/kyvera?schema=public
+      # Throwaway value: CI only needs *a* valid secret (32+ chars), and no
+      # real one should ever live in the workflow file.
+      JWT_SECRET: ci-only-jwt-secret-not-used-anywhere-else
     services:
       postgres:
         image: postgres:16-alpine

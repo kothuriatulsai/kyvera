@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
+import { authedAgent } from "./helpers/auth";
 
 const app = createApp();
+const api = authedAgent(app);
 
 const OVERRUN_DAYS = 4;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -15,7 +16,7 @@ let overrunId: string;
 const createdProductIds: string[] = [];
 
 async function createProduct(name: string): Promise<string> {
-  const res = await request(app).post("/products").send({ name, ownerId });
+  const res = await api.post("/products").send({ name, ownerId });
   expect(res.status).toBe(201);
   createdProductIds.push(res.body.id);
   return res.body.id;
@@ -28,7 +29,7 @@ interface ListedProduct {
 }
 
 async function listedProduct(id: string): Promise<ListedProduct> {
-  const res = await request(app).get("/products");
+  const res = await api.get("/products");
   expect(res.status).toBe(200);
   return (res.body as ListedProduct[]).find((p) => p.id === id)!;
 }
@@ -96,8 +97,8 @@ describe("Live product status", () => {
 
   it("agrees with GET /products/:id and the /delay endpoint", async () => {
     const listed = await listedProduct(overrunId);
-    const detail = await request(app).get(`/products/${overrunId}`);
-    const delay = await request(app).get(`/products/${overrunId}/delay`);
+    const detail = await api.get(`/products/${overrunId}`);
+    const delay = await api.get(`/products/${overrunId}/delay`);
 
     expect(detail.body.status).toBe(listed.status);
     expect(detail.body.delay.totalDelayDays).toBe(delay.body.totalDelayDays);
@@ -106,7 +107,7 @@ describe("Live product status", () => {
   });
 
   it("does not override a manually-set BLOCKED status", async () => {
-    const patched = await request(app).patch(`/products/${overrunId}`).send({ status: "BLOCKED" });
+    const patched = await api.patch(`/products/${overrunId}`).send({ status: "BLOCKED" });
     expect(patched.status).toBe(200);
 
     const product = await listedProduct(overrunId);
@@ -118,7 +119,7 @@ describe("Live product status", () => {
 
   it("re-derives DELAYED, not the requested value, when clearing a block on an overrun product", async () => {
     // overrunId is BLOCKED from the previous test and is genuinely overrun.
-    const cleared = await request(app).patch(`/products/${overrunId}`).send({ status: "ON_TRACK" });
+    const cleared = await api.patch(`/products/${overrunId}`).send({ status: "ON_TRACK" });
 
     expect(cleared.status).toBe(200);
     expect(cleared.body.status).toBe("DELAYED");

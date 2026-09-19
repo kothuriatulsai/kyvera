@@ -27,6 +27,9 @@ services:
     environment:
       PORT: 4000
       DATABASE_URL: postgresql://kyvera:kyvera@postgres:5432/kyvera?schema=public
+      # Dev-only default so `docker compose up` works out of the box; override
+      # with a real secret (export JWT_SECRET=...) for anything shared.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-compose-jwt-secret-change-me-0123456789}
     ports:
       - "4000:4000"
     volumes:
