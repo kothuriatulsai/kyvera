@@ -23,6 +23,13 @@ enum ProductStatus {
   @@map("product_status")
 }
 
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+
+  @@map("approval_decision")
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   name         String
@@ -34,6 +41,7 @@ model User {
   ownedProducts          Product[]              @relation("ProductOwner")
   createdVersions        ProductVersion[]       @relation("VersionCreator")
   stageResponsibilities  ProductStageHistory[]  @relation("StageResponsible")
+  approvalsDecided       Approval[]             @relation("ApprovalDecider")
 
   @@map("users")
 }
@@ -48,6 +56,7 @@ model StageDefinition {
 
   products     Product[]
   stageHistory ProductStageHistory[]
+  approvals    Approval[]
 
   @@map("stage_definitions")
 }
@@ -69,6 +78,7 @@ model Product {
 
   versions     ProductVersion[]
   stageHistory ProductStageHistory[]
+  approvals    Approval[]
 
   @@map("products")
 }
@@ -85,6 +95,7 @@ model ProductVersion {
   createdAt     DateTime @default(now()) @map("created_at")
   createdById   String   @map("created_by") @db.Uuid
   createdBy     User     @relation("VersionCreator", fields: [createdById], references: [id])
+  approvals     Approval[]
 
   @@unique([productId, versionNumber])
   @@map("product_versions")
@@ -108,4 +119,26 @@ model ProductStageHistory {
   responsibleUser     User?           @relation("StageResponsible", fields: [responsibleUserId], references: [id])
 
   @@map("product_stage_history")
+}
+
+// Append-only record of an approval decision on one exact product version.
+// This is the Module 1 -> Module 2 handoff contract: manufacturing orders
+// look for an APPROVED row for their product + pinned version rather than
+// inferring approval from "reached the last stage". See docs/architecture/0005.
+model Approval {
+  id               String           @id @default(uuid()) @db.Uuid
+  productId        String           @map("product_id") @db.Uuid
+  product          Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  productVersionId String           @map("product_version_id") @db.Uuid
+  productVersion   ProductVersion   @relation(fields: [productVersionId], references: [id], onDelete: Cascade)
+  stageId          String           @map("stage_id") @db.Uuid
+  stage            StageDefinition  @relation(fields: [stageId], references: [id])
+  decision         ApprovalDecision
+  decidedById      String           @map("decided_by") @db.Uuid
+  decidedBy        User             @relation("ApprovalDecider", fields: [decidedById], references: [id])
+  decidedAt        DateTime         @default(now()) @map("decided_at")
+  notes            String?
+
+  @@index([productId, productVersionId])
+  @@map("approvals")
 }
