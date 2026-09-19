@@ -32,7 +32,7 @@ export interface CreateProductVersionInput {
 }
 
 // Reads return live-computed status and a delay summary, not the stored
-// snapshot — see productDelayService.withLiveDelay.
+// snapshot â€” see productDelayService.withLiveDelay.
 export async function listProducts() {
   const products = await productRepository.findMany();
   return withLiveDelay(products);
