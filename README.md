@@ -82,8 +82,34 @@ See `docs/architecture/` for the reasoning behind these decisions and
 
 ## API (Module 1)
 
-No auth yet — `ownerId`/`responsibleUserId` reference existing `users` rows
-directly (seeded via `db:seed`) until the JWT/role-based auth module lands.
+### Authentication
+
+Every endpoint except `/health`, `POST /auth/register` and `POST /auth/login`
+requires `Authorization: Bearer <token>` and returns `401` without a valid one.
+That is *all* it enforces so far: who is calling is now verifiable
+(`req.actor`), but nothing yet uses it to decide what they may see or do (roles,
+ownership and assignments — see `docs/architecture/0004`). Fields like
+`ownerId`, `responsibleUserId` and `decidedById` are still plain request-body
+values checked only for "is an existing user", not against the caller.
+
+| Method | Path | Notes |
+|---|---|---|
+| `POST` | `/auth/register` | `{ name, email, password }` (password 8–128 chars). Creates a user with the least-privileged role (`ENGINEER`); sending a `role` is a `400`. |
+| `POST` | `/auth/login` | `{ email, password }` → `{ token, tokenType, expiresIn, user }`. Wrong password and unknown email return the same `401`. |
+| `GET` | `/auth/me` | The caller's own user record; needs a token. |
+
+Passwords are hashed with argon2id. Tokens are HS256 JWTs whose claims are only
+the user id (`sub`) and `role`, and they live for one hour
+(`JWT_EXPIRES_IN_SECONDS`). There is no refresh flow: when a token expires the
+client logs in again. The role in a token can be up to an hour out of date if it
+changes, which matters once roles are enforced. Configure `JWT_SECRET`
+(required, 32+ characters) as described in `apps/api/.env.example`.
+
+`db:seed` gives the seeded users a real hash of a well-known dev password
+(`kyvera-dev-password`, or `SEED_USER_PASSWORD`) so you can log in as, for
+example, `admin@kyvera.dev`. It is dev data; never seed a shared environment.
+
+### Endpoints
 
 | Method | Path | Notes |
 |---|---|---|
@@ -138,6 +164,10 @@ carry `approval: { decision: "APPROVED" | "REJECTED", decidedById, notes? }`:
 using response types from `packages/shared-types`. Set `VITE_API_URL` to point
 it at the API (defaults to `http://localhost:4000`).
 
+**Known gap:** the API now requires a token and the web app has no login screen
+yet, so against a real API its pages get `401`. Its tests stub `fetch`, so they
+still pass. A login flow is the next frontend piece.
+
 | Route | View |
 |---|---|
 | `/` | Product list — stage, owner, live status, projected completion. |
@@ -151,7 +181,8 @@ Prerequisites: Node.js 22+, Docker (for Postgres).
 ```bash
 npm install
 
-# Copy the env template and adjust DATABASE_URL if not using Docker Compose
+# Copy the env template, adjust DATABASE_URL if not using Docker Compose, and
+# set JWT_SECRET (the file explains how to generate one)
 cp apps/api/.env.example apps/api/.env
 
 # Start Postgres
