@@ -1,12 +1,12 @@
 import type {
   ProductDelay,
   ProductDetail,
-  ProductSummary,
+  ProductListItem,
   StageDefinition,
 } from '@kyvera/shared-types'
 import { apiGet } from './client'
 
-export const fetchProducts = () => apiGet<ProductSummary[]>('/products')
+export const fetchProducts = () => apiGet<ProductListItem[]>('/products')
 
 export const fetchProduct = (id: string) =>
   apiGet<ProductDetail>(`/products/${encodeURIComponent(id)}`)
