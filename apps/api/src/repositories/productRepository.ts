@@ -19,6 +19,13 @@ const detailInclude = {
     orderBy: { enteredAt: "desc" },
     include: { stage: true, responsibleUser: { select: safeUserSelect } },
   },
+  approvals: {
+    orderBy: { decidedAt: "desc" },
+    include: {
+      decidedBy: { select: safeUserSelect },
+      productVersion: { select: { versionNumber: true } },
+    },
+  },
 } satisfies Prisma.ProductInclude;
 
 export function findMany(db: Db = prisma) {

@@ -12,3 +12,9 @@ export function findByProduct(productId: string, db: Db = prisma) {
     orderBy: { versionNumber: "desc" },
   });
 }
+
+export function findByProductAndNumber(productId: string, versionNumber: number, db: Db = prisma) {
+  return db.productVersion.findUnique({
+    where: { productId_versionNumber: { productId, versionNumber } },
+  });
+}
