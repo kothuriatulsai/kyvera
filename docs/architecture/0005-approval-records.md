@@ -67,10 +67,18 @@ required backward `reason`. It is the same real-world event as a backward move,
 now recorded as a decision rather than inferred from `direction: "backward"` +
 free text alone. No parallel transition code path is added.
 
-**Who can decide.** Only `ADMIN` or `MANAGER` users. This is the same
-admin/manager authority level used for other gated stage movement; no new
-permission concept is introduced. A decision from any other role is rejected
-with `403`.
+**Who can decide.** An **admin, the product's owner, or a manager assigned to
+the product** — the authority set defined by ADR 0004 (Resolutions 6 and 7),
+the same one used for forced and backward transitions; no new permission
+concept is introduced. Anyone else is rejected with `403`.
+
+*Current implementation is coarser than this rule.* Ownership and stage
+assignments don't exist as enforceable data yet (no authentication, no
+assignments table), so today the check is simply "the user named in
+`decidedById` has the `ADMIN` or `MANAGER` role", for any product. It
+tightens to the rule above when the access-control work lands; until then an
+owner who is not a manager or admin gets a `403`, and a manager who is
+unrelated to the product is allowed.
 
 **Pinning to a version.** The approval stores the product's *current*
 `product_version_id` at decision time. Module 2's handoff query is then exactly
@@ -96,12 +104,19 @@ afterwards does not retroactively approve it.
   anyone can send an admin's id. When JWT auth lands, the decider must come
   from the verified token, and the request field goes away. Until then, treat
   this as a business-rule gate, not access control.
-- **"Same gate as other backward transitions" is currently aspirational.**
-  Plain backward transitions in the API today are not role-gated; only the
-  approval decision is. This ADR does not add a gate to them. It also does not
-  depend on ADR 0004, whose open questions (including how sign-off works for a
-  stage with several assignees) are still unresolved; when that ADR is
-  accepted, the approval authority rule should be revisited against it.
+- **The approval gate is the same authority as ADR 0004's transition rules.**
+  ADR 0004 is accepted and its resolutions are the reference: backward moves,
+  forcing a multi-assignee transition, and triggering a fully signed-off one are
+  all limited to an admin, the product's owner, or an assigned manager (its
+  Resolutions 2, 6, 7 and 8), and approval decisions use that same set. The
+  approval gate should stay in step with it. Until real authentication and
+  assignment data exist, only approval decisions are role-gated in the API
+  (coarsely, see "Who can decide"); plain backward and forced transitions are
+  still not, and this ADR does not add that.
+- **An owner can approve their own product.** ADR 0004 Resolution 7 extends the
+  owner's local-admin authority to approval decisions, so there is no
+  separation of duties between owning and approving. It is an accepted
+  trade-off, recorded there.
 - **"Final stage = approval gate" is a convention.** If the workflow is later
   extended with a stage *after* Approval, this rule silently moves the gate.
   The clean fix at that point is an explicit `requires_approval` flag on
