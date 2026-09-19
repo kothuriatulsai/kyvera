@@ -147,11 +147,54 @@ describe("Product API", () => {
     expect(res.body.product.currentVersion).toBe(2);
   });
 
-  it("updates product status", async () => {
-    const res = await request(app).patch(`/products/${productId}`).send({ status: "DELAYED" });
+  it("rejects setting a derived status manually instead of silently ignoring it", async () => {
+    const delayed = await request(app).patch(`/products/${productId}`).send({ status: "DELAYED" });
+    expect(delayed.status).toBe(400);
+    expect(delayed.body.error).toMatch(/derived from delay computation; only BLOCKED/);
+
+    // ON_TRACK is only meaningful as "clear a block"; this product isn't blocked.
+    const onTrack = await request(app).patch(`/products/${productId}`).send({ status: "ON_TRACK" });
+    expect(onTrack.status).toBe(400);
+
+    const stored = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
+    expect(stored.status).toBe("ON_TRACK");
+  });
+
+  it("allows BLOCKED to be set manually", async () => {
+    const res = await request(app).patch(`/products/${productId}`).send({ status: "BLOCKED" });
 
     expect(res.status).toBe(200);
-    expect(res.body.status).toBe("DELAYED");
+    expect(res.body.status).toBe("BLOCKED");
+  });
+
+  it("rejects DELAYED on a blocked product, and lets ON_TRACK clear the block", async () => {
+    const delayed = await request(app).patch(`/products/${productId}`).send({ status: "DELAYED" });
+    expect(delayed.status).toBe(400);
+
+    const cleared = await request(app).patch(`/products/${productId}`).send({ status: "ON_TRACK" });
+    expect(cleared.status).toBe(200);
+    // Re-derived from the delay computation, not taken from the request: this
+    // product is on schedule.
+    expect(cleared.body.status).toBe("ON_TRACK");
+  });
+
+  it("still applies other fields alongside a valid status", async () => {
+    const res = await request(app)
+      .patch(`/products/${productId}`)
+      .send({ name: "Renamed Widget", status: "BLOCKED" });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ name: "Renamed Widget", status: "BLOCKED" });
+  });
+
+  it("does not apply any field from a request whose status is rejected", async () => {
+    const res = await request(app)
+      .patch(`/products/${productId}`)
+      .send({ name: "Should Not Apply", status: "DELAYED" });
+
+    expect(res.status).toBe(400);
+    const stored = await prisma.product.findUniqueOrThrow({ where: { id: productId } });
+    expect(stored.name).toBe("Renamed Widget");
   });
 
   it("rejects an invalid status value", async () => {

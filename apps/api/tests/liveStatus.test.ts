@@ -116,6 +116,15 @@ describe("Live product status", () => {
     expect(product.delay.delayed).toBe(true);
   });
 
+  it("re-derives DELAYED, not the requested value, when clearing a block on an overrun product", async () => {
+    // overrunId is BLOCKED from the previous test and is genuinely overrun.
+    const cleared = await request(app).patch(`/products/${overrunId}`).send({ status: "ON_TRACK" });
+
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.status).toBe("DELAYED");
+    expect((await listedProduct(overrunId)).status).toBe("DELAYED");
+  });
+
   it("handles a product with no stage history", async () => {
     // A product whose history was removed must not break the batched read.
     const bareId = await createProduct("No History Widget");
