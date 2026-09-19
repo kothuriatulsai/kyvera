@@ -46,7 +46,7 @@ export interface ProductSummary {
   createdAt: string;
 }
 
-/** Live delay rollup on read responses — the per-stage detail is `ProductDelay`. */
+/** Live delay rollup on read responses â€” the per-stage detail is `ProductDelay`. */
 export interface ProductDelaySummary {
   delayed: boolean;
   totalDelayDays: number;

@@ -6,7 +6,12 @@ import * as stageDefinitionRepository from "../repositories/stageDefinitionRepos
 import * as userRepository from "../repositories/userRepository";
 import { prisma } from "../repositories/prismaClient";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
-import { recomputeAndPersistProductDelay, withLiveDelay } from "./productDelayService";
+import {
+  computeDelayForProduct,
+  deriveStatus,
+  recomputeAndPersistProductDelay,
+  withLiveDelay,
+} from "./productDelayService";
 
 export interface CreateProductInput {
   name: string;
@@ -32,7 +37,7 @@ export interface CreateProductVersionInput {
 }
 
 // Reads return live-computed status and a delay summary, not the stored
-// snapshot — see productDelayService.withLiveDelay.
+// snapshot â€” see productDelayService.withLiveDelay.
 export async function listProducts() {
   const products = await productRepository.findMany();
   return withLiveDelay(products);
@@ -105,6 +110,32 @@ export async function createProduct(input: CreateProductInput) {
   });
 }
 
+// status is derived from the delay computation (see productDelayService), so
+// the only legitimate manual write is BLOCKED. Anything else used to be
+// accepted and silently overridden on the next read; reject it instead.
+//
+// The one exception is ON_TRACK on a BLOCKED product, which means "clear the
+// block". Without it a BLOCKED product could never be unblocked, since BLOCKED
+// always wins over the derived value. The stored value is then set to what the
+// delay computation says (ON_TRACK or DELAYED), never to the raw value sent.
+async function resolveManualStatus(
+  productId: string,
+  current: ProductStatus,
+  requested: ProductStatus | undefined,
+): Promise<ProductStatus | undefined> {
+  if (requested === undefined || requested === "BLOCKED") return requested;
+
+  if (requested === "ON_TRACK" && current === "BLOCKED") {
+    const delay = await computeDelayForProduct(productId);
+    return deriveStatus("ON_TRACK", delay.delayed);
+  }
+
+  throw new ValidationError(
+    "status is derived from delay computation; only BLOCKED can be set manually" +
+      " (ON_TRACK is accepted only to clear a BLOCKED status)",
+  );
+}
+
 export async function updateProduct(id: string, input: UpdateProductInput) {
   const existing = await productRepository.findByIdWithCurrentStage(id);
   if (!existing) {
@@ -118,11 +149,13 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
     }
   }
 
+  const status = await resolveManualStatus(id, existing.status, input.status);
+
   return productRepository.update(id, {
     name: input.name,
     description: input.description,
     owner: input.ownerId ? { connect: { id: input.ownerId } } : undefined,
-    status: input.status,
+    status,
     expectedCompletionDate: input.expectedCompletionDate,
     actualCompletionDate: input.actualCompletionDate,
   });
