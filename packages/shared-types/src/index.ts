@@ -18,6 +18,53 @@ export interface UserSummary {
   createdAt: string;
 }
 
+/**
+ * Who is calling, as proven by a verified access token. Deliberately just
+ * identity and role — assignments and ownership can change between logins, so
+ * they are looked up per request rather than baked into the token.
+ */
+export interface AuthActor {
+  id: string;
+  role: UserRole;
+}
+
+/** Claims inside the access token (a JWT signed with HS256). */
+export interface AccessTokenClaims {
+  /** The user id. */
+  sub: string;
+  role: UserRole;
+  /** Issued-at and expiry, seconds since the epoch. */
+  iat: number;
+  exp: number;
+}
+
+/**
+ * Body of `POST /auth/register`. There is intentionally no `role`: public
+ * registration always creates the least-privileged role, and sending one is a
+ * 400. Response: 201 with the created `UserSummary`.
+ */
+export interface RegisterRequest {
+  name: string;
+  email: string;
+  /** 8 to 128 characters. */
+  password: string;
+}
+
+/** Body of `POST /auth/login`. */
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+/** Response of `POST /auth/login`. Send `token` as `Authorization: Bearer <token>`. */
+export interface LoginResponse {
+  token: string;
+  tokenType: "Bearer";
+  /** Token lifetime in seconds. There is no refresh flow yet: log in again. */
+  expiresIn: number;
+  user: UserSummary;
+}
+
 export interface StageDefinition {
   id: string;
   name: string;
