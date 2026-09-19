@@ -4,7 +4,7 @@ import { fetchProduct, fetchProductDelay, fetchStages } from '../api/products'
 import { AsyncView } from '../components/AsyncView'
 import { StatusBadge } from '../components/StatusBadge'
 import { useAsync } from '../hooks/useAsync'
-import { effectiveStatus, formatDate, formatDays } from '../lib/format'
+import { formatDate, formatDays } from '../lib/format'
 
 const PROGRESS_LABELS: Record<StageProgress, string> = {
   completed: 'Completed',
@@ -37,7 +37,7 @@ export function ProductDetailPage() {
             <>
               <header className="detail-header">
                 <h1>{product.name}</h1>
-                <StatusBadge status={effectiveStatus(product.status, delay.delayed)} />
+                <StatusBadge status={product.status} />
               </header>
               {product.description && <p>{product.description}</p>}
 

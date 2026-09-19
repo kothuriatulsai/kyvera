@@ -1,11 +1,12 @@
 import { Link } from 'react-router'
 import { AsyncView } from '../components/AsyncView'
 import { StatusBadge } from '../components/StatusBadge'
-import { useProductsWithDelays } from '../hooks/useProductsWithDelays'
+import { fetchProducts } from '../api/products'
+import { useAsync } from '../hooks/useAsync'
 import { formatDate } from '../lib/format'
 
 export function ProductListPage() {
-  const state = useProductsWithDelays()
+  const state = useAsync(fetchProducts)
 
   return (
     <section>
@@ -22,11 +23,11 @@ export function ProductListPage() {
                   <th>Stage</th>
                   <th>Owner</th>
                   <th>Status</th>
-                  <th>Expected completion</th>
+                  <th>Projected completion</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ product, status }) => (
+                {rows.map((product) => (
                   <tr key={product.id}>
                     <td>
                       <Link to={`/products/${product.id}`}>{product.name}</Link>
@@ -35,9 +36,9 @@ export function ProductListPage() {
                     <td>{product.currentStage?.name ?? '—'}</td>
                     <td>{product.owner.name}</td>
                     <td>
-                      <StatusBadge status={status} />
+                      <StatusBadge status={product.status} />
                     </td>
-                    <td>{formatDate(product.expectedCompletionDate)}</td>
+                    <td>{formatDate(product.delay.expectedCompletionDate)}</td>
                   </tr>
                 ))}
               </tbody>

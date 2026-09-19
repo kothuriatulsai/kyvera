@@ -18,13 +18,3 @@ export const STATUS_LABELS: Record<ProductStatus, string> = {
   DELAYED: 'Delayed',
   BLOCKED: 'Blocked',
 }
-
-/**
- * The persisted status can lag behind reality (see useProductDelays). Prefer
- * the live delay result when we have it, but never override a manually-set
- * BLOCKED, mirroring what the API's recompute does.
- */
-export function effectiveStatus(persisted: ProductStatus, liveDelayed: boolean | undefined): ProductStatus {
-  if (persisted === 'BLOCKED' || liveDelayed === undefined) return persisted
-  return liveDelayed ? 'DELAYED' : 'ON_TRACK'
-}

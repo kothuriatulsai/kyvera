@@ -1,19 +1,20 @@
 import { Link } from 'react-router'
+import { fetchProducts } from '../api/products'
 import { AsyncView } from '../components/AsyncView'
-import { useProductsWithDelays } from '../hooks/useProductsWithDelays'
+import { useAsync } from '../hooks/useAsync'
 import { formatDate, formatDays } from '../lib/format'
 
 export function DelayedPage() {
-  const state = useProductsWithDelays()
+  const state = useAsync(fetchProducts)
 
   return (
     <section>
       <h1>Delayed products</h1>
       <AsyncView state={state}>
-        {(rows) => {
-          const delayed = rows
-            .filter((row) => row.status === 'DELAYED')
-            .sort((a, b) => (b.delay?.totalDelayDays ?? 0) - (a.delay?.totalDelayDays ?? 0))
+        {(products) => {
+          const delayed = products
+            .filter((product) => product.status === 'DELAYED')
+            .sort((a, b) => b.delay.totalDelayDays - a.delay.totalDelayDays)
 
           if (delayed.length === 0) {
             return <p className="muted">Nothing is delayed right now.</p>
@@ -31,15 +32,15 @@ export function DelayedPage() {
                 </tr>
               </thead>
               <tbody>
-                {delayed.map(({ product, delay }) => (
+                {delayed.map((product) => (
                   <tr key={product.id}>
                     <td>
                       <Link to={`/products/${product.id}`}>{product.name}</Link>
                     </td>
                     <td>{product.currentStage?.name ?? '—'}</td>
                     <td>{product.owner.name}</td>
-                    <td>{delay ? formatDays(delay.totalDelayDays) : '—'}</td>
-                    <td>{formatDate(delay?.expectedCompletionDate ?? product.expectedCompletionDate)}</td>
+                    <td>{formatDays(product.delay.totalDelayDays)}</td>
+                    <td>{formatDate(product.delay.expectedCompletionDate)}</td>
                   </tr>
                 ))}
               </tbody>
