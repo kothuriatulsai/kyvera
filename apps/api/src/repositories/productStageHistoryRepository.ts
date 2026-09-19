@@ -20,6 +20,14 @@ export function findAllByProduct(productId: string, db: Db = prisma) {
   });
 }
 
+export function findAllByProducts(productIds: string[], db: Db = prisma) {
+  return db.productStageHistory.findMany({
+    where: { productId: { in: productIds } },
+    include: { stage: true },
+    orderBy: { enteredAt: "asc" },
+  });
+}
+
 export function closeEntry(
   id: string,
   data: Pick<

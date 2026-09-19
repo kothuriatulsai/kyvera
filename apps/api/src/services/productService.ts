@@ -6,7 +6,7 @@ import * as stageDefinitionRepository from "../repositories/stageDefinitionRepos
 import * as userRepository from "../repositories/userRepository";
 import { prisma } from "../repositories/prismaClient";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
-import { recomputeAndPersistProductDelay } from "./productDelayService";
+import { recomputeAndPersistProductDelay, withLiveDelay } from "./productDelayService";
 
 export interface CreateProductInput {
   name: string;
@@ -31,8 +31,11 @@ export interface CreateProductVersionInput {
   createdById?: string;
 }
 
-export function listProducts() {
-  return productRepository.findMany();
+// Reads return live-computed status and a delay summary, not the stored
+// snapshot — see productDelayService.withLiveDelay.
+export async function listProducts() {
+  const products = await productRepository.findMany();
+  return withLiveDelay(products);
 }
 
 export async function getProductById(id: string) {
@@ -40,7 +43,8 @@ export async function getProductById(id: string) {
   if (!product) {
     throw new NotFoundError(`Product ${id} not found`);
   }
-  return product;
+  const [live] = await withLiveDelay([product]);
+  return live;
 }
 
 export async function createProduct(input: CreateProductInput) {
