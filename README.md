@@ -87,14 +87,14 @@ directly (seeded via `db:seed`) until the JWT/role-based auth module lands.
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/products` | List all products. |
+| `GET` | `/products` | List all products, with live-computed `status` and a `delay` summary (see below). |
 | `POST` | `/products` | Create a product. Also creates its v1 `ProductVersion` and opens the first `ProductStageHistory` entry. |
-| `GET` | `/products/:id` | Full detail: owner, current stage, versions, stage history. |
+| `GET` | `/products/:id` | Full detail: owner, current stage, versions, stage history, approvals; live `status`/`delay` as above. |
 | `GET` | `/products/:id/delay` | Live per-stage delay breakdown (status, elapsed/expected days, delay days) plus the same projected `expectedCompletionDate` stored on the product. |
 | `PATCH` | `/products/:id` | Update `name`/`description`/`ownerId`/`status`/`expectedCompletionDate`/`actualCompletionDate`. |
 | `DELETE` | `/products/:id` | Deletes the product and its versions/stage history. |
 | `POST` | `/products/:id/versions` | Create a new `ProductVersion`, bumping `currentVersion`. |
-| `POST` | `/products/:id/transition` | Move to the next (`direction: "forward"`, default) or previous (`"backward"`) stage. Can't skip stages; moving backward requires a `reason`. Recomputes and persists `expectedCompletionDate`/`status` (see below). |
+| `POST` | `/products/:id/transition` | Move to the next (`direction: "forward"`, default) or previous (`"backward"`) stage. Can't skip stages; moving backward requires a `reason`. Moving into the final (Approval) stage requires an `approval` decision (see below). Recomputes and persists `expectedCompletionDate`/`status`. |
 
 `expectedCompletionDate` is derived, not a free-form field: on creation (unless
 you pass an explicit override) and on every transition, it's recomputed from
@@ -104,15 +104,33 @@ duration (in progress), or expected duration (not yet reached) — see
 (`ON_TRACK`/`DELAYED`), except once a product is manually set to `BLOCKED`,
 which the recompute won't overwrite.
 
-Because that persisted `status` only refreshes on creation/transition, a
-product that has quietly sat in a stage past its expected duration still reads
-`ON_TRACK` in the database until its next transition. `GET /products/:id/delay`
-is always live, so the frontend uses it (not the stored `status`) to decide
-what counts as delayed.
+The stored `status` column only refreshes on creation/transition, so a product
+that has quietly sat in a stage past its expected duration would still read
+`ON_TRACK` there. Reads therefore don't trust it: `GET /products` and
+`GET /products/:id` compute `status` live from stage timing on every request
+(one batched query for all products, then the same pure delay computation)
+and add a `delay` summary (`delayed`, `totalDelayDays`, projected
+`expectedCompletionDate`). `BLOCKED` is manual and always passes through. The
+per-stage breakdown is still `GET /products/:id/delay`.
 
 | Method | Path | Notes |
 |---|---|---|
 | `GET` | `/stages` | The workflow's stage definitions, in `sequenceOrder`. |
+
+### Approvals
+
+Entering the final stage is an approval gate. The transition request must
+carry `approval: { decision: "APPROVED" | "REJECTED", decidedById, notes? }`:
+
+- `APPROVED` moves the product into the Approval stage.
+- `REJECTED` (with `notes`) instead sends it one stage back, through the normal
+  backward path, with the notes as the reason.
+- Either way an append-only `approvals` row is written in the same transaction,
+  pinned to the product's current `ProductVersion` — this is what Module 2 will
+  check before a product can be manufactured.
+- Only `ADMIN`/`MANAGER` users may decide (`403` otherwise). With no auth yet
+  this checks the role of the user named in `decidedById`, so it is a business
+  rule, not a security boundary. See `docs/architecture/0005-approval-records.md`.
 
 ## Frontend (Module 1)
 
