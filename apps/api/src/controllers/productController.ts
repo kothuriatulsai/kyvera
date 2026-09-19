@@ -1,7 +1,8 @@
 import type { Request, Response } from "express";
-import { ProductStatus } from "@prisma/client";
+import { ApprovalDecision, ProductStatus } from "@prisma/client";
 import * as productService from "../services/productService";
 import * as stageTransitionService from "../services/stageTransitionService";
+import type { ApprovalInput } from "../services/stageTransitionService";
 import * as productDelayService from "../services/productDelayService";
 import { ValidationError } from "../services/errors";
 import { asyncHandler } from "./asyncHandler";
@@ -39,6 +40,28 @@ function optionalDate(body: Record<string, unknown>, field: string): Date | unde
 function nullableDate(body: Record<string, unknown>, field: string): Date | null | undefined {
   if (body[field] === null) return null;
   return optionalDate(body, field);
+}
+
+function optionalApproval(body: Record<string, unknown>): ApprovalInput | undefined {
+  const raw = body.approval;
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== "object" || Array.isArray(raw)) {
+    throw new ValidationError("approval must be an object");
+  }
+  const approval = raw as Record<string, unknown>;
+
+  const decision = requireString(approval, "decision");
+  if (!Object.values(ApprovalDecision).includes(decision as ApprovalDecision)) {
+    throw new ValidationError(
+      `decision must be one of ${Object.values(ApprovalDecision).join(", ")}`,
+    );
+  }
+
+  return {
+    decision: decision as ApprovalDecision,
+    decidedById: requireString(approval, "decidedById"),
+    notes: optionalString(approval, "notes"),
+  };
 }
 
 export const listProducts = asyncHandler(async (_req: Request, res: Response) => {
@@ -124,6 +147,7 @@ export const transitionProduct = asyncHandler(async (req: Request, res: Response
     direction,
     reason: optionalString(body, "reason"),
     responsibleUserId: optionalString(body, "responsibleUserId"),
+    approval: optionalApproval(body),
   });
   res.json(product);
 });
