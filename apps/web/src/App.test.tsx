@@ -1,7 +1,7 @@
 import type {
   ProductDelay,
   ProductDetail,
-  ProductSummary,
+  ProductListItem,
   StageDefinition,
   UserSummary,
 } from '@kyvera/shared-types'
@@ -23,7 +23,12 @@ const stages: StageDefinition[] = [
   { id: 's2', name: 'Initial Design', sequenceOrder: 2, expectedDurationDays: 7 },
 ]
 
-function makeProduct(id: string, name: string, overrides: Partial<ProductSummary> = {}): ProductSummary {
+// Shaped like GET /products: `status` and `delay` are computed live by the server.
+function makeProduct(
+  id: string,
+  name: string,
+  overrides: Partial<ProductListItem> = {},
+): ProductListItem {
   return {
     id,
     name,
@@ -33,8 +38,12 @@ function makeProduct(id: string, name: string, overrides: Partial<ProductSummary
     currentStageId: stages[0].id,
     currentStage: stages[0],
     currentVersion: 1,
-    // Persisted status deliberately stale (ON_TRACK) — the live delay is the truth.
     status: 'ON_TRACK',
+    delay: {
+      delayed: false,
+      totalDelayDays: 0,
+      expectedCompletionDate: '2026-11-01T00:00:00.000Z',
+    },
     startDate: '2026-09-01T00:00:00.000Z',
     expectedCompletionDate: '2026-11-01T00:00:00.000Z',
     actualCompletionDate: null,
@@ -44,7 +53,14 @@ function makeProduct(id: string, name: string, overrides: Partial<ProductSummary
 }
 
 const onTime = makeProduct('p-ok', 'Steady Widget')
-const late = makeProduct('p-late', 'Overdue Gadget')
+const late = makeProduct('p-late', 'Overdue Gadget', {
+  status: 'DELAYED',
+  delay: {
+    delayed: true,
+    totalDelayDays: 4,
+    expectedCompletionDate: '2026-11-05T00:00:00.000Z',
+  },
+})
 
 const delays: Record<string, ProductDelay> = {
   'p-ok': {
@@ -95,6 +111,11 @@ const lateDetail: ProductDetail = {
       responsibleUser: owner,
     },
   ],
+  approvals: [],
+}
+
+function requestedPaths(fetchMock: ReturnType<typeof stubApi>): string[] {
+  return fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)
 }
 
 function stubApi() {
@@ -128,8 +149,8 @@ afterEach(() => {
 })
 
 describe('App', () => {
-  it('lists products, using live delay rather than the stale persisted status', async () => {
-    stubApi()
+  it('lists products with the status the server computed, in a single request', async () => {
+    const fetchMock = stubApi()
     renderAt('/')
 
     const lateRow = (await screen.findByText('Overdue Gadget')).closest('tr')!
@@ -137,15 +158,19 @@ describe('App', () => {
 
     const okRow = screen.getByText('Steady Widget').closest('tr')!
     expect(within(okRow).getByText('On track')).toBeTruthy()
+
+    // The live status now comes from GET /products; no per-product /delay calls.
+    expect(requestedPaths(fetchMock)).toEqual(['/products'])
   })
 
-  it('shows only delayed products on the delayed view', async () => {
-    stubApi()
+  it('shows only delayed products on the delayed view, in a single request', async () => {
+    const fetchMock = stubApi()
     renderAt('/delayed')
 
     await screen.findByText('Overdue Gadget')
     expect(screen.getByText('4 days')).toBeTruthy()
     expect(screen.queryByText('Steady Widget')).toBeNull()
+    expect(requestedPaths(fetchMock)).toEqual(['/products'])
   })
 
   it('shows the stage timeline with per-stage delay on the detail view', async () => {
