@@ -32,7 +32,13 @@ export function closeEntry(
   id: string,
   data: Pick<
     Prisma.ProductStageHistoryUpdateInput,
-    "exitedAt" | "actualDurationDays" | "delayed" | "delayReason" | "responsibleUser"
+    | "exitedAt"
+    | "actualDurationDays"
+    | "delayed"
+    | "delayReason"
+    | "responsibleUser"
+    | "exitedBy"
+    | "forcedExit"
   >,
   db: Db = prisma,
 ) {

@@ -16,3 +16,7 @@ export function findFirst(db: Db = prisma) {
 export function findLast(db: Db = prisma) {
   return db.stageDefinition.findFirst({ orderBy: { sequenceOrder: "desc" } });
 }
+
+export function findById(id: string, db: Db = prisma) {
+  return db.stageDefinition.findUnique({ where: { id } });
+}
