@@ -23,6 +23,13 @@ enum ProductStatus {
   @@map("product_status")
 }
 
+enum AssignmentAction {
+  ASSIGNED
+  UNASSIGNED
+
+  @@map("assignment_action")
+}
+
 enum ApprovalDecision {
   APPROVED
   REJECTED
@@ -38,10 +45,16 @@ model User {
   passwordHash String   @map("password_hash")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  ownedProducts          Product[]              @relation("ProductOwner")
-  createdVersions        ProductVersion[]       @relation("VersionCreator")
-  stageResponsibilities  ProductStageHistory[]  @relation("StageResponsible")
-  approvalsDecided       Approval[]             @relation("ApprovalDecider")
+  ownedProducts          Product[]                       @relation("ProductOwner")
+  createdVersions        ProductVersion[]                @relation("VersionCreator")
+  stageResponsibilities  ProductStageHistory[]           @relation("StageResponsible")
+  approvalsDecided       Approval[]                      @relation("ApprovalDecider")
+  stageExits             ProductStageHistory[]           @relation("StageExitedBy")
+  assignments            ProductStageAssignment[]        @relation("AssignmentUser")
+  assignmentsMade        ProductStageAssignment[]        @relation("AssignmentAssigner")
+  assignmentHistoryAbout ProductStageAssignmentHistory[] @relation("AssignmentHistoryUser")
+  assignmentHistoryActed ProductStageAssignmentHistory[] @relation("AssignmentHistoryActor")
+  progressNotes          StageProgressNote[]             @relation("ProgressNoteAuthor")
 
   @@map("users")
 }
@@ -54,31 +67,37 @@ model StageDefinition {
   sequenceOrder        Int    @unique @map("sequence_order")
   expectedDurationDays Int    @map("expected_duration_days")
 
-  products     Product[]
-  stageHistory ProductStageHistory[]
-  approvals    Approval[]
+  products          Product[]
+  stageHistory      ProductStageHistory[]
+  approvals         Approval[]
+  assignments       ProductStageAssignment[]
+  assignmentHistory ProductStageAssignmentHistory[]
+  progressNotes     StageProgressNote[]
 
   @@map("stage_definitions")
 }
 
 model Product {
-  id                     String          @id @default(uuid()) @db.Uuid
+  id                     String           @id @default(uuid()) @db.Uuid
   name                   String
   description            String?
-  ownerId                String          @map("owner_id") @db.Uuid
-  owner                  User            @relation("ProductOwner", fields: [ownerId], references: [id])
-  currentStageId         String?         @map("current_stage_id") @db.Uuid
+  ownerId                String           @map("owner_id") @db.Uuid
+  owner                  User             @relation("ProductOwner", fields: [ownerId], references: [id])
+  currentStageId         String?          @map("current_stage_id") @db.Uuid
   currentStage           StageDefinition? @relation(fields: [currentStageId], references: [id])
-  currentVersion         Int             @default(1) @map("current_version")
-  status                 ProductStatus   @default(ON_TRACK)
-  startDate              DateTime?       @map("start_date")
-  expectedCompletionDate DateTime?       @map("expected_completion_date")
-  actualCompletionDate   DateTime?       @map("actual_completion_date")
-  createdAt              DateTime        @default(now()) @map("created_at")
+  currentVersion         Int              @default(1) @map("current_version")
+  status                 ProductStatus    @default(ON_TRACK)
+  startDate              DateTime?        @map("start_date")
+  expectedCompletionDate DateTime?        @map("expected_completion_date")
+  actualCompletionDate   DateTime?        @map("actual_completion_date")
+  createdAt              DateTime         @default(now()) @map("created_at")
 
-  versions     ProductVersion[]
-  stageHistory ProductStageHistory[]
-  approvals    Approval[]
+  versions          ProductVersion[]
+  stageHistory      ProductStageHistory[]
+  approvals         Approval[]
+  assignments       ProductStageAssignment[]
+  assignmentHistory ProductStageAssignmentHistory[]
+  progressNotes     StageProgressNote[]
 
   @@map("products")
 }
@@ -87,14 +106,14 @@ model Product {
 // a new version created later doesn't retroactively change the spec on an
 // existing order.
 model ProductVersion {
-  id            String   @id @default(uuid()) @db.Uuid
-  productId     String   @map("product_id") @db.Uuid
-  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  versionNumber Int      @map("version_number")
+  id            String     @id @default(uuid()) @db.Uuid
+  productId     String     @map("product_id") @db.Uuid
+  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  versionNumber Int        @map("version_number")
   spec          String?
-  createdAt     DateTime @default(now()) @map("created_at")
-  createdById   String   @map("created_by") @db.Uuid
-  createdBy     User     @relation("VersionCreator", fields: [createdById], references: [id])
+  createdAt     DateTime   @default(now()) @map("created_at")
+  createdById   String     @map("created_by") @db.Uuid
+  createdBy     User       @relation("VersionCreator", fields: [createdById], references: [id])
   approvals     Approval[]
 
   @@unique([productId, versionNumber])
@@ -105,18 +124,24 @@ model ProductVersion {
 // computation (compare enteredAt + stage.expectedDurationDays against
 // actual/current date).
 model ProductStageHistory {
-  id                  String          @id @default(uuid()) @db.Uuid
-  productId           String          @map("product_id") @db.Uuid
-  product             Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  stageId             String          @map("stage_id") @db.Uuid
-  stage               StageDefinition @relation(fields: [stageId], references: [id])
-  enteredAt           DateTime        @default(now()) @map("entered_at")
-  exitedAt            DateTime?       @map("exited_at")
-  actualDurationDays  Int?            @map("actual_duration_days")
-  delayed             Boolean         @default(false)
-  delayReason         String?         @map("delay_reason")
-  responsibleUserId   String?         @map("responsible_user_id") @db.Uuid
-  responsibleUser     User?           @relation("StageResponsible", fields: [responsibleUserId], references: [id])
+  id                 String          @id @default(uuid()) @db.Uuid
+  productId          String          @map("product_id") @db.Uuid
+  product            Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stageId            String          @map("stage_id") @db.Uuid
+  stage              StageDefinition @relation(fields: [stageId], references: [id])
+  enteredAt          DateTime        @default(now()) @map("entered_at")
+  exitedAt           DateTime?       @map("exited_at")
+  actualDurationDays Int?            @map("actual_duration_days")
+  delayed            Boolean         @default(false)
+  delayReason        String?         @map("delay_reason")
+  responsibleUserId  String?         @map("responsible_user_id") @db.Uuid
+  responsibleUser    User?           @relation("StageResponsible", fields: [responsibleUserId], references: [id])
+  // Who triggered the move out of this stage (docs/architecture/0004,
+  // Resolution 8: a transition is attributed to the person who decided it), and
+  // whether it went ahead without every assignee having signed off.
+  exitedById         String?         @map("exited_by") @db.Uuid
+  exitedBy           User?           @relation("StageExitedBy", fields: [exitedById], references: [id])
+  forcedExit         Boolean         @default(false) @map("forced_exit")
 
   @@map("product_stage_history")
 }
@@ -141,4 +166,63 @@ model Approval {
 
   @@index([productId, productVersionId])
   @@map("approvals")
+}
+
+// Which users work which stage of which product (docs/architecture/0004). This
+// is what gates visibility into a product's stage data; a user's global role
+// does not. readyAt is the assignee's own "I'm done with this stage" mark,
+// cleared whenever the product (re)enters the stage.
+model ProductStageAssignment {
+  id           String          @id @default(uuid()) @db.Uuid
+  productId    String          @map("product_id") @db.Uuid
+  product      Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stageId      String          @map("stage_id") @db.Uuid
+  stage        StageDefinition @relation(fields: [stageId], references: [id])
+  userId       String          @map("user_id") @db.Uuid
+  user         User            @relation("AssignmentUser", fields: [userId], references: [id])
+  assignedAt   DateTime        @default(now()) @map("assigned_at")
+  assignedById String          @map("assigned_by") @db.Uuid
+  assignedBy   User            @relation("AssignmentAssigner", fields: [assignedById], references: [id])
+  readyAt      DateTime?       @map("ready_at")
+
+  @@unique([productId, stageId, userId])
+  @@index([userId])
+  @@map("product_stage_assignments")
+}
+
+// Append-only audit trail of assignment changes. Deliberately not a foreign key
+// to the assignment row: that row is deleted on unassign, the history must not be.
+model ProductStageAssignmentHistory {
+  id        String           @id @default(uuid()) @db.Uuid
+  productId String           @map("product_id") @db.Uuid
+  product   Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stageId   String           @map("stage_id") @db.Uuid
+  stage     StageDefinition  @relation(fields: [stageId], references: [id])
+  userId    String           @map("user_id") @db.Uuid
+  user      User             @relation("AssignmentHistoryUser", fields: [userId], references: [id])
+  action    AssignmentAction
+  actedById String           @map("acted_by") @db.Uuid
+  actedBy   User             @relation("AssignmentHistoryActor", fields: [actedById], references: [id])
+  actedAt   DateTime         @default(now()) @map("acted_at")
+
+  @@index([productId])
+  @@map("product_stage_assignment_history")
+}
+
+// Ongoing progress/delay notes an assignee records on their own stage. Scoped,
+// functional data - not the deferred free-form `comments` table (ADR 0004,
+// Resolution 9). Append-only.
+model StageProgressNote {
+  id        String          @id @default(uuid()) @db.Uuid
+  productId String          @map("product_id") @db.Uuid
+  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stageId   String          @map("stage_id") @db.Uuid
+  stage     StageDefinition @relation(fields: [stageId], references: [id])
+  userId    String          @map("user_id") @db.Uuid
+  user      User            @relation("ProgressNoteAuthor", fields: [userId], references: [id])
+  note      String
+  createdAt DateTime        @default(now()) @map("created_at")
+
+  @@index([productId, stageId])
+  @@map("stage_progress_notes")
 }
