@@ -4,6 +4,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { fetchProducts } from '../api/products'
 import { useAsync } from '../hooks/useAsync'
 import { formatDate } from '../lib/format'
+import { fullViewsOnly } from '../lib/views'
 
 export function ProductListPage() {
   const state = useAsync(fetchProducts)
@@ -12,8 +13,9 @@ export function ProductListPage() {
     <section>
       <h1>Products</h1>
       <AsyncView state={state}>
-        {(rows) =>
-          rows.length === 0 ? (
+        {(entries) => {
+          const rows = fullViewsOnly(entries)
+          return rows.length === 0 ? (
             <p className="muted">No products yet.</p>
           ) : (
             <table>
@@ -44,7 +46,7 @@ export function ProductListPage() {
               </tbody>
             </table>
           )
-        }
+        }}
       </AsyncView>
     </section>
   )
