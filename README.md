@@ -86,11 +86,8 @@ See `docs/architecture/` for the reasoning behind these decisions and
 
 Every endpoint except `/health`, `POST /auth/register` and `POST /auth/login`
 requires `Authorization: Bearer <token>` and returns `401` without a valid one.
-That is *all* it enforces so far: who is calling is now verifiable
-(`req.actor`), but nothing yet uses it to decide what they may see or do (roles,
-ownership and assignments — see `docs/architecture/0004`). Fields like
-`ownerId`, `responsibleUserId` and `decidedById` are still plain request-body
-values checked only for "is an existing user", not against the caller.
+The verified caller is `req.actor` (id and role), and what they may see and do is
+decided per product - see [Access control](#access-control) below.
 
 | Method | Path | Notes |
 |---|---|---|
@@ -101,9 +98,10 @@ values checked only for "is an existing user", not against the caller.
 Passwords are hashed with argon2id. Tokens are HS256 JWTs whose claims are only
 the user id (`sub`) and `role`, and they live for one hour
 (`JWT_EXPIRES_IN_SECONDS`). There is no refresh flow: when a token expires the
-client logs in again. The role in a token can be up to an hour out of date if it
-changes, which matters once roles are enforced. Configure `JWT_SECRET`
-(required, 32+ characters) as described in `apps/api/.env.example`.
+client logs in again. The token only proves *who* is calling: on every request
+the user is loaded and their *current* role used, so a demoted or deleted user
+loses access immediately rather than when their token expires. Configure
+`JWT_SECRET` (required, 32+ characters) as described in `apps/api/.env.example`.
 
 `db:seed` gives the seeded users a real hash of a well-known dev password
 (`kyvera-dev-password`, or `SEED_USER_PASSWORD`) so you can log in as, for
@@ -111,16 +109,23 @@ example, `admin@kyvera.dev`. It is dev data; never seed a shared environment.
 
 ### Endpoints
 
+What each product endpoint returns depends on who is asking: see
+[Access control](#access-control).
+
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/products` | List all products, with live-computed `status` and a `delay` summary (see below). |
-| `POST` | `/products` | Create a product. Also creates its v1 `ProductVersion` and opens the first `ProductStageHistory` entry. |
-| `GET` | `/products/:id` | Full detail: owner, current stage, versions, stage history, approvals; live `status`/`delay` as above. |
-| `GET` | `/products/:id/delay` | Live per-stage delay breakdown (status, elapsed/expected days, delay days) plus the same projected `expectedCompletionDate` stored on the product. |
-| `PATCH` | `/products/:id` | Update `name`/`description`/`ownerId`/`status`/`expectedCompletionDate`/`actualCompletionDate`. `status` is derived from delay, so only `BLOCKED` can be set manually; `DELAYED` is rejected with a `400`, and `ON_TRACK` is accepted only to clear a `BLOCKED` product (the stored value is then re-derived). |
+| `GET` | `/products` | The products the caller can see, each shaped for their access, with live-computed `status` and a `delay` summary (see below). |
+| `POST` | `/products` | Create a product. Also creates its v1 `ProductVersion` and opens the first `ProductStageHistory` entry. Open to any authenticated user (who may create, and `ownerId`, are not settled by the ADRs). |
+| `GET` | `/products/:id` | Detail: for admin/owner/assigned manager, owner, current stage, versions, stage history, approvals, assignments and progress notes; for an assignee, only their own stages. |
+| `GET` | `/products/:id/delay` | Live per-stage delay breakdown plus the projected `expectedCompletionDate` (assignees get only their own stages). |
+| `PATCH` | `/products/:id` | Update `name`/`description`/`ownerId`/`status`/`expectedCompletionDate`/`actualCompletionDate`. Needs authority over the product, and changing `ownerId` is admin-only. `status` is derived from delay, so only `BLOCKED` can be set manually; `DELAYED` is rejected with a `400`, and `ON_TRACK` is accepted only to clear a `BLOCKED` product (the stored value is then re-derived). |
 | `DELETE` | `/products/:id` | Deletes the product and its versions/stage history. |
 | `POST` | `/products/:id/versions` | Create a new `ProductVersion`, bumping `currentVersion`. |
-| `POST` | `/products/:id/transition` | Move to the next (`direction: "forward"`, default) or previous (`"backward"`) stage. Can't skip stages; moving backward requires a `reason`. Moving into the final (Approval) stage requires an `approval` decision (see below). Recomputes and persists `expectedCompletionDate`/`status`. |
+| `POST` | `/products/:id/transition` | Move to the next (`direction: "forward"`, default) or previous (`"backward"`) stage. Can't skip stages; moving backward requires a `reason`. Moving into the final (Approval) stage requires an `approval` decision (see below). `force: true` advances a multi-assignee stage without everyone's sign-off. Who may do which is in [Access control](#access-control). Recomputes and persists `expectedCompletionDate`/`status`. |
+| `POST` | `/products/:id/assignments` | Admin only. `{ stageId, userId }` assigns a user to a stage of the product. |
+| `DELETE` | `/products/:id/assignments/:assignmentId` | Admin only. Removes an assignment (and, if it was their only one, the user's access to the product). |
+| `POST` | `/products/:id/assignments/:assignmentId/ready` | An assignee marks *their own* assignment ready; only the current stage can be marked. Never moves the product. |
+| `POST` | `/products/:id/stages/:stageId/notes` | `{ note }`: an assignee adds a progress/delay note to a stage they are assigned to, at any time. Never moves the product. |
 
 `expectedCompletionDate` is derived, not a free-form field: on creation (unless
 you pass an explicit override) and on every transition, it's recomputed from
@@ -141,22 +146,60 @@ per-stage breakdown is still `GET /products/:id/delay`.
 
 | Method | Path | Notes |
 |---|---|---|
-| `GET` | `/stages` | The workflow's stage definitions, in `sequenceOrder`. |
+| `GET` | `/stages` | The stage definitions the caller may know: all of them for an admin or anyone who sees a product in full, otherwise only the stages they are assigned to. |
 
 ### Approvals
 
 Entering the final stage is an approval gate. The transition request must
-carry `approval: { decision: "APPROVED" | "REJECTED", decidedById, notes? }`:
+carry `approval: { decision: "APPROVED" | "REJECTED", notes? }`:
 
 - `APPROVED` moves the product into the Approval stage.
 - `REJECTED` (with `notes`) instead sends it one stage back, through the normal
   backward path, with the notes as the reason.
 - Either way an append-only `approvals` row is written in the same transaction,
-  pinned to the product's current `ProductVersion` — this is what Module 2 will
+  pinned to the product's current `ProductVersion` - this is what Module 2 will
   check before a product can be manufactured.
-- Only `ADMIN`/`MANAGER` users may decide (`403` otherwise). With no auth yet
-  this checks the role of the user named in `decidedById`, so it is a business
-  rule, not a security boundary. See `docs/architecture/0005-approval-records.md`.
+- The decision is attributed to the authenticated user; a `decidedById` in the
+  body is a `400`. Only an admin, the product's owner, or a manager assigned to
+  it may decide (see below). See `docs/architecture/0005-approval-records.md`.
+
+### Access control
+
+Implements `docs/architecture/0004-stage-level-access-control.md`. Who someone is
+*to a product* is decided per product, not from their role alone, in one place
+(`services/accessService.ts`):
+
+| Level | Who | Sees | Holds authority |
+|---|---|---|---|
+| `ADMIN` | a user with role `ADMIN` | every product, in full | over all of them |
+| `OWNER` | the product's owner, whatever their role | their own product, in full | over it |
+| `MANAGER` | a `MANAGER` assigned to a stage of it | that product, in full | over it |
+| `ASSIGNEE` | anyone else assigned to a stage of it | only their own stages, plus a readiness hint | no |
+| (none) | everyone else, including managers with no assignment | nothing: not listed, and a `404` if requested | no |
+
+"Authority" means: move the product backward, force or trigger a multi-assignee
+transition, decide an approval, and edit, delete or version it. Changing a
+product's owner and managing assignments are admin-only.
+
+- **Assignee view.** `view: "assignee"` responses contain only the caller's own
+  stages, each with a readiness hint (`completed` / `open_now` / `up_next` /
+  `upcoming`, plus `opensInDays`), their own ready mark, that stage's delay
+  figures, history and notes. No other stage's name, status or history, and none
+  of the product's status, dates, owner, versions or approvals. Full views carry
+  `view: "full"`.
+- **Sign-off.** On a stage with several assignees each marks themselves ready.
+  Nothing fires when the last one does: an admin, the owner or an assigned manager
+  triggers the transition, or forces it (`force: true`, recorded as `forcedExit`)
+  without everyone's sign-off. A stage with one assignee can be advanced by that
+  assignee directly. Every transition records who triggered it (`exited_by`).
+  Marks on a stage reset when the product re-enters it.
+- **Errors.** `401` not logged in; `404` no relationship to the product (same as if
+  it didn't exist); `403` you can see it but lack authority; `409` a
+  multi-assignee stage that is not fully signed off and was not forced.
+
+Not settled by the ADRs and therefore unchanged: who may create a product and
+`ownerId` on creation, `responsibleUserId` on a transition and `createdById` on a
+new version.
 
 ## Frontend (Module 1)
 
@@ -164,9 +207,11 @@ carry `approval: { decision: "APPROVED" | "REJECTED", decidedById, notes? }`:
 using response types from `packages/shared-types`. Set `VITE_API_URL` to point
 it at the API (defaults to `http://localhost:4000`).
 
-**Known gap:** the API now requires a token and the web app has no login screen
-yet, so against a real API its pages get `401`. Its tests stub `fetch`, so they
-still pass. A login flow is the next frontend piece.
+**Known gaps:** the API requires a token and the web app has no login screen yet,
+so against a real API its pages get `401` (its tests stub `fetch`, so they still
+pass). It also only renders the full view of a product; the assignee view, and
+everything in [Access control](#access-control), get their UI in the frontend
+session that adds login.
 
 | Route | View |
 |---|---|

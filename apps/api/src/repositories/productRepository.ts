@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import type { Db } from "./prismaClient";
 import { prisma } from "./prismaClient";
+import { assignmentInclude } from "./assignmentRepository";
 import { safeUserSelect } from "./selects";
 
 const listInclude = {
@@ -19,6 +20,14 @@ const detailInclude = {
     orderBy: { enteredAt: "desc" },
     include: { stage: true, responsibleUser: { select: safeUserSelect } },
   },
+  assignments: {
+    include: assignmentInclude,
+    orderBy: [{ stage: { sequenceOrder: "asc" } }, { assignedAt: "asc" }],
+  },
+  progressNotes: {
+    orderBy: { createdAt: "desc" },
+    include: { user: { select: { id: true, name: true } } },
+  },
   approvals: {
     orderBy: { decidedAt: "desc" },
     include: {
@@ -28,11 +37,26 @@ const detailInclude = {
   },
 } satisfies Prisma.ProductInclude;
 
-export function findMany(db: Db = prisma) {
+// Products matching `where`, each carrying only *the given user's* assignments
+// on it - which is all that's needed to decide what that user may see. Other
+// people's assignments are never loaded for a list.
+export function findManyForViewer(
+  where: Prisma.ProductWhereInput,
+  viewerId: string,
+  db: Db = prisma,
+) {
   return db.product.findMany({
-    include: listInclude,
+    where,
+    include: {
+      ...listInclude,
+      assignments: { where: { userId: viewerId }, include: { stage: true } },
+    },
     orderBy: { createdAt: "desc" },
   });
+}
+
+export function existsWhere(where: Prisma.ProductWhereInput, db: Db = prisma) {
+  return db.product.findFirst({ where, select: { id: true } }).then((row) => row !== null);
 }
 
 export function findById(id: string, db: Db = prisma) {

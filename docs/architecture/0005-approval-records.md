@@ -72,13 +72,14 @@ the product** — the authority set defined by ADR 0004 (Resolutions 6 and 7),
 the same one used for forced and backward transitions; no new permission
 concept is introduced. Anyone else is rejected with `403`.
 
-*Current implementation is coarser than this rule.* Ownership and stage
-assignments don't exist as enforceable data yet (no authentication, no
-assignments table), so today the check is simply "the user named in
-`decidedById` has the `ADMIN` or `MANAGER` role", for any product. It
-tightens to the rule above when the access-control work lands; until then an
-owner who is not a manager or admin gets a `403`, and a manager who is
-unrelated to the product is allowed.
+*This is what the API enforces.* The decider is the authenticated user, never a
+field in the request body (a `decidedById` in the body is a `400`), and the
+check is made against that user's relationship to *this* product: admin,
+owner (whatever their role), or a manager assigned to it. A manager with no
+tie to the product cannot even see it (`404`), and an assignee, who can see
+the product but holds no authority over it, gets `403`. Before authentication
+and assignments existed the check was a coarser "the user named in the body has
+the `ADMIN` or `MANAGER` role, for any product"; that is gone.
 
 **Pinning to a version.** The approval stores the product's *current*
 `product_version_id` at decision time. Module 2's handoff query is then exactly
@@ -96,23 +97,17 @@ afterwards does not retroactively approve it.
 - **The transition endpoint gets stricter.** A forward move into the final
   stage without a decision is now a `400`. An approval sent with any other
   transition is also a `400`, so stray approval rows can't be created.
-- **The authority check is only as strong as the identity behind it.** There is
-  no authentication yet (hand-rolled JWT is a separate, upcoming module), so
-  the decider is identified by a `decidedById` field in the request body and
-  the `ADMIN`/`MANAGER` check is made against that user's stored role. That
-  enforces the rule for well-behaved clients but is not a security boundary:
-  anyone can send an admin's id. When JWT auth lands, the decider must come
-  from the verified token, and the request field goes away. Until then, treat
-  this as a business-rule gate, not access control.
+- **The authority check is now a real one.** The decider comes from the
+  verified token (with the role read fresh from the database), so a client can
+  no longer claim to be someone else. The approval gate therefore *is* access
+  control, not just a business rule.
 - **The approval gate is the same authority as ADR 0004's transition rules.**
   ADR 0004 is accepted and its resolutions are the reference: backward moves,
   forcing a multi-assignee transition, and triggering a fully signed-off one are
   all limited to an admin, the product's owner, or an assigned manager (its
   Resolutions 2, 6, 7 and 8), and approval decisions use that same set. The
-  approval gate should stay in step with it. Until real authentication and
-  assignment data exist, only approval decisions are role-gated in the API
-  (coarsely, see "Who can decide"); plain backward and forced transitions are
-  still not, and this ADR does not add that.
+  approval gate stays in step with it: all of them are enforced by the same
+  access check in the API.
 - **An owner can approve their own product.** ADR 0004 Resolution 7 extends the
   owner's local-admin authority to approval decisions, so there is no
   separation of duties between owning and approving. It is an accepted

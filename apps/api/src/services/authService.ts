@@ -54,6 +54,21 @@ export async function login(input: LoginInput) {
   };
 }
 
+/**
+ * Turns verified token claims into the actor for this request. The token proves
+ * *who* is calling; the role is read fresh from the database, not trusted from
+ * the token. Authorization now depends on the role, so a demoted admin must
+ * stop being an admin immediately rather than when their token expires, and a
+ * deleted user's token must stop working.
+ */
+export async function resolveActor(claims: Actor): Promise<Actor> {
+  const user = await userRepository.findSafeById(claims.id);
+  if (!user) {
+    throw new UnauthorizedError("User no longer exists");
+  }
+  return { id: user.id, role: user.role };
+}
+
 export async function getCurrentUser(actor: Actor) {
   const user = await userRepository.findSafeById(actor.id);
   if (!user) {

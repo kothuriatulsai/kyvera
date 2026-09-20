@@ -1,4 +1,6 @@
 import type {
+  AssigneeDelay,
+  AssigneeProductSummary,
   ProductDelay,
   ProductDetail,
   ProductListItem,
@@ -38,6 +40,8 @@ function makeProduct(
     currentStageId: stages[0].id,
     currentStage: stages[0],
     currentVersion: 1,
+    view: 'full',
+    access: 'ADMIN',
     status: 'ON_TRACK',
     delay: {
       delayed: false,
@@ -64,6 +68,7 @@ const late = makeProduct('p-late', 'Overdue Gadget', {
 
 const delays: Record<string, ProductDelay> = {
   'p-ok': {
+    view: 'full',
     expectedCompletionDate: '2026-11-01T00:00:00.000Z',
     totalDelayDays: 0,
     delayed: false,
@@ -73,6 +78,7 @@ const delays: Record<string, ProductDelay> = {
     ],
   },
   'p-late': {
+    view: 'full',
     expectedCompletionDate: '2026-11-05T00:00:00.000Z',
     totalDelayDays: 4,
     delayed: true,
@@ -109,10 +115,34 @@ const lateDetail: ProductDetail = {
       delayReason: null,
       responsibleUserId: owner.id,
       responsibleUser: owner,
+      exitedById: null,
+      forcedExit: false,
     },
   ],
   approvals: [],
+  assignments: [],
+  progressNotes: [],
 }
+
+// What someone assigned to only part of a product gets: their own stages, no more.
+const assignedEntry: AssigneeProductSummary = {
+  view: 'assignee',
+  access: 'ASSIGNEE',
+  id: 'p-assigned',
+  name: 'Assigned Gadget',
+  description: null,
+  stages: [
+    {
+      assignmentId: 'a1',
+      stage: { id: 's2', name: 'Initial Design', expectedDurationDays: 7 },
+      readyAt: null,
+      readiness: { state: 'up_next', opensInDays: 3 },
+      delay: null,
+    },
+  ],
+}
+
+const assignedDelay: AssigneeDelay = { view: 'assignee', stages: assignedEntry.stages }
 
 function requestedPaths(fetchMock: ReturnType<typeof stubApi>): string[] {
   return fetchMock.mock.calls.map(([input]) => new URL(String(input)).pathname)
@@ -124,7 +154,9 @@ function stubApi() {
     const json = (body: unknown, status = 200) =>
       new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-    if (path === '/products') return json([onTime, late])
+    if (path === '/products') return json([onTime, late, assignedEntry])
+    if (path === '/products/p-assigned') return json({ ...assignedEntry, stages: [{ ...assignedEntry.stages[0], history: [], notes: [] }] })
+    if (path === '/products/p-assigned/delay') return json(assignedDelay)
     if (path === '/stages') return json(stages)
     if (path === '/products/p-late') return json(lateDetail)
     const delay = /^\/products\/([^/]+)\/delay$/.exec(path)
@@ -185,6 +217,22 @@ describe('App', () => {
 
     const designRow = screen.getByText('Initial Design').closest('tr')!
     expect(within(designRow).getByText('Not started')).toBeTruthy()
+  })
+
+  it('skips assignee-only entries in the list rather than misrendering them', async () => {
+    stubApi()
+    renderAt('/')
+
+    await screen.findByText('Overdue Gadget')
+    expect(screen.queryByText('Assigned Gadget')).toBeNull()
+  })
+
+  it('handles the assignee view on the detail page without crashing', async () => {
+    stubApi()
+    renderAt('/products/p-assigned')
+
+    const notice = await screen.findByText(/assignee view isn't built yet/i)
+    expect(notice).toBeTruthy()
   })
 
   it('surfaces the API error message when a product is not found', async () => {

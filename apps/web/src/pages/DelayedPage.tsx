@@ -3,6 +3,7 @@ import { fetchProducts } from '../api/products'
 import { AsyncView } from '../components/AsyncView'
 import { useAsync } from '../hooks/useAsync'
 import { formatDate, formatDays } from '../lib/format'
+import { fullViewsOnly } from '../lib/views'
 
 export function DelayedPage() {
   const state = useAsync(fetchProducts)
@@ -11,8 +12,8 @@ export function DelayedPage() {
     <section>
       <h1>Delayed products</h1>
       <AsyncView state={state}>
-        {(products) => {
-          const delayed = products
+        {(entries) => {
+          const delayed = fullViewsOnly(entries)
             .filter((product) => product.status === 'DELAYED')
             .sort((a, b) => b.delay.totalDelayDays - a.delay.totalDelayDays)
 

@@ -5,13 +5,14 @@ import * as productStageHistoryRepository from "../repositories/productStageHist
 import * as stageDefinitionRepository from "../repositories/stageDefinitionRepository";
 import * as userRepository from "../repositories/userRepository";
 import { prisma } from "../repositories/prismaClient";
-import { ConflictError, NotFoundError, ValidationError } from "./errors";
+import { requireAccess, requireAuthority } from "./accessService";
+import { ConflictError, ForbiddenError, ValidationError } from "./errors";
 import {
   computeDelayForProduct,
   deriveStatus,
   recomputeAndPersistProductDelay,
-  withLiveDelay,
 } from "./productDelayService";
+import type { Actor } from "./tokenService";
 
 export interface CreateProductInput {
   name: string;
@@ -34,22 +35,6 @@ export interface UpdateProductInput {
 export interface CreateProductVersionInput {
   spec?: string;
   createdById?: string;
-}
-
-// Reads return live-computed status and a delay summary, not the stored
-// snapshot — see productDelayService.withLiveDelay.
-export async function listProducts() {
-  const products = await productRepository.findMany();
-  return withLiveDelay(products);
-}
-
-export async function getProductById(id: string) {
-  const product = await productRepository.findById(id);
-  if (!product) {
-    throw new NotFoundError(`Product ${id} not found`);
-  }
-  const [live] = await withLiveDelay([product]);
-  return live;
 }
 
 export async function createProduct(input: CreateProductInput) {
@@ -106,7 +91,11 @@ export async function createProduct(input: CreateProductInput) {
       await recomputeAndPersistProductDelay(product.id, tx);
     }
 
-    return productRepository.findById(product.id, tx);
+    const created = await productRepository.findById(product.id, tx);
+    if (!created) {
+      throw new ConflictError(`Product ${product.id} disappeared while it was being created`);
+    }
+    return created;
   });
 }
 
@@ -136,10 +125,15 @@ async function resolveManualStatus(
   );
 }
 
-export async function updateProduct(id: string, input: UpdateProductInput) {
-  const existing = await productRepository.findByIdWithCurrentStage(id);
-  if (!existing) {
-    throw new NotFoundError(`Product ${id} not found`);
+export async function updateProduct(actor: Actor, id: string, input: UpdateProductInput) {
+  const { product: existing, access } = await requireAccess(actor, id);
+  requireAuthority(access, "edit this product");
+
+  // Ownership is what grants local-admin authority over a product, so handing
+  // it to someone (or to yourself) is a user/assignment-level change: admin only.
+  // ADR 0004 reserves those for admins but doesn't mention ownership explicitly.
+  if (input.ownerId !== undefined && actor.role !== "ADMIN") {
+    throw new ForbiddenError("Only an admin can change a product's owner");
   }
 
   if (input.ownerId) {
@@ -161,19 +155,19 @@ export async function updateProduct(id: string, input: UpdateProductInput) {
   });
 }
 
-export async function deleteProduct(id: string) {
-  const existing = await productRepository.findByIdWithCurrentStage(id);
-  if (!existing) {
-    throw new NotFoundError(`Product ${id} not found`);
-  }
+export async function deleteProduct(actor: Actor, id: string) {
+  const { access } = await requireAccess(actor, id);
+  requireAuthority(access, "delete this product");
   await productRepository.remove(id);
 }
 
-export async function createProductVersion(productId: string, input: CreateProductVersionInput) {
-  const product = await productRepository.findById(productId);
-  if (!product) {
-    throw new NotFoundError(`Product ${productId} not found`);
-  }
+export async function createProductVersion(
+  actor: Actor,
+  productId: string,
+  input: CreateProductVersionInput,
+) {
+  const { product, access } = await requireAccess(actor, productId);
+  requireAuthority(access, "add a version to this product");
 
   const createdById = input.createdById ?? product.ownerId;
   const creator = await userRepository.findById(createdById);

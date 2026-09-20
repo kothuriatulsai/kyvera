@@ -2,10 +2,10 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
-import { authedAgent } from "./helpers/auth";
+import { cleanupTestUsers, createTestUser, type TestAgent } from "./helpers/auth";
 
 const app = createApp();
-const api = authedAgent(app);
+let api: TestAgent;
 
 const OVERRUN_DAYS = 4;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -35,6 +35,8 @@ async function listedProduct(id: string): Promise<ListedProduct> {
 }
 
 beforeAll(async () => {
+  api = (await createTestUser(app, "ADMIN")).agent;
+
   const firstStage = await prisma.stageDefinition.findUnique({ where: { sequenceOrder: 1 } });
   if (!firstStage) {
     throw new Error(
@@ -71,6 +73,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await prisma.product.deleteMany({ where: { id: { in: createdProductIds } } });
   await prisma.user.deleteMany({ where: { id: ownerId } });
+  await cleanupTestUsers();
   await prisma.$disconnect();
 });
 

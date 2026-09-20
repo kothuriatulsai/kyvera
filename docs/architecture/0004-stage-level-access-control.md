@@ -4,8 +4,10 @@
 
 Accepted — 2026-09-20. Proposed 2026-09-19; its five open questions and the
 four follow-up points they raised are all resolved below (see "Resolution
-notes"). Implementation is not started: the hand-rolled JWT auth it depends on
-is the next piece of work.
+notes"). Implemented in the API on 2026-09-20 on top of the JWT auth; the
+choices made while implementing, including where it goes beyond what is written
+above, are in "Implementation notes". The frontend does not use the assignee
+view yet.
 
 ## Context
 
@@ -188,6 +190,79 @@ assume them:
    also distinct from `ProductStageHistory.delay_reason`, which stays the reason
    captured when a stage closes on a transition; progress notes are the ongoing
    record while a stage is open.
+
+### Implementation notes
+
+Decisions made while implementing, most of which the sections above do not spell
+out. The first two extend or refine them; the rest fill gaps.
+
+**Refinements to the model**
+
+- **An assigned manager sees the whole product**, not only their own stages. The
+  ADR text describes an assignee (own stages) and an owner (everything); a
+  manager assigned to a product holds authority over it (Resolution 6) and cannot
+  exercise authority over something they can't see, so they get the owner's full
+  view of that product. A user's *level* for a product is decided in one place:
+  admin, else owner, else (assigned and role `MANAGER`) manager, else (assigned)
+  assignee, else none. Owner and assigned-manager are checked before assignee, so
+  someone who is both sees the full view.
+- **An unrelated product is a `404`, not a `403`.** A product the viewer has no
+  relationship to is indistinguishable from one that doesn't exist (same status,
+  same message), so ids can't be probed. `403` is reserved for someone who *can*
+  see the product but lacks authority over it, such as an assignee trying to go
+  backward. A malformed id is also a `404`.
+- **The assignee view is deliberately minimal.** Product id, name and
+  description, then per assigned stage: the stage's name and expected duration,
+  the readiness hint, their own `readyAt`, that stage's delay figures, its own
+  history, and the notes on it. Not the product's status, dates, current stage,
+  owner, versions, approvals or other assignments, not the stage's position in
+  the workflow, and no other user (colleagues' notes show only whether a note is
+  yours). Widening it later is a deliberate choice; narrowing it after people rely
+  on it would not be.
+- **Readiness is computed, not stored.** Before the target stage: "completed";
+  the current stage: "open now"; the next one: "up next"; anything further:
+  "upcoming". "Opens in ~N days" is the unspent part of the current stage plus the
+  expected duration of every stage between (the same on-schedule model the delay
+  projection uses). It runs over the full workflow, so an assignee's number is
+  right even though they can't see the stages it is made of.
+- **The token proves who; the database says what.** `authenticate` now loads the
+  user on every request and uses their *current* role. The role in the token is
+  ignored, so a demoted admin stops being one at once and a deleted user's token
+  stops working, at the cost of one primary-key lookup per request.
+
+**Filling gaps**
+
+- **Advancing and forcing.** Moving forward on a stage with several assignees when
+  not all are ready is a `409` unless the request says `force: true`, so overriding
+  a sign-off is deliberate. Two columns on `product_stage_history` record it:
+  `exited_by` (who pressed the button, per Resolution 8) and `forced_exit`.
+  A sole assignee advances their own stage directly and needs no ready mark.
+- **Readiness marks** target an assignment row (`POST .../assignments/:id/ready`),
+  and only that row's own user may set one. Not an admin, not a colleague: an
+  admin who wants to move on without someone's sign-off forces the transition. A
+  mark is only accepted for the product's *current* stage, and marks on a stage are
+  cleared whenever the product enters it again, so a rework loop needs a fresh
+  sign-off.
+- **Who may edit, delete or version a product** is not in the ADR. It is limited to
+  those with authority (admin, owner, assigned manager). Changing a product's
+  *owner* is admin-only, because ownership is what grants local-admin authority
+  and a manager could otherwise give it to themselves.
+- **Progress notes** may be added only by an assignee of that stage, not by an
+  owner or admin who isn't one; they can assign themselves if they need to.
+- **`GET /stages`** lists every stage to an admin and to anyone who sees at least
+  one product in full, and only the stages they're assigned to otherwise; listing
+  all of them to everyone would reveal exactly the names the assignee view hides.
+- **Every response that returns a product goes through the same projection**,
+  including the ones from writes (creating a product, a transition, a `PATCH`). An
+  assignee who advances their stage gets their own view back, and a creator who is
+  not the owner gets only the id and name they supplied.
+
+**Left as they were** (no ADR resolves them, so they were not changed)
+
+- Who may **create** a product, and `ownerId` on creation, remain open to any
+  authenticated user, and the creator does not have to be the owner.
+- `responsibleUserId` on a transition and `createdById` on a new version are still
+  request-body fields.
 
 ## Consequences
 

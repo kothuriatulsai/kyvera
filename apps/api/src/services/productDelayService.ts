@@ -11,7 +11,7 @@ import {
 } from "./delayComputationService";
 import { NotFoundError } from "./errors";
 
-interface StageDefinitionRow {
+interface StageWindowRow {
   sequenceOrder: number;
   expectedDurationDays: number;
 }
@@ -26,7 +26,7 @@ interface StageHistoryRow {
 /** Adapts DB rows into the pure computation's input shape. */
 function toDelayInput(
   product: { startDate: Date | null; createdAt: Date },
-  stageDefs: StageDefinitionRow[],
+  stageDefs: StageWindowRow[],
   history: StageHistoryRow[],
 ): DelayComputationInput {
   return {
@@ -85,7 +85,7 @@ export async function computeDelayForProduct(
  * (`expectedCompletionDate`, and `status` unless it's been manually set to
  * BLOCKED). Called wherever a stage's timing just changed — on creation and
  * on every transition. Reads don't rely on this snapshot for `status`: see
- * `withLiveDelay`.
+ * `computeLiveDelays` / `liveDelayFields`.
  */
 export async function recomputeAndPersistProductDelay(
   productId: string,
@@ -109,27 +109,41 @@ export async function recomputeAndPersistProductDelay(
 export interface LiveDelaySummary {
   delayed: boolean;
   totalDelayDays: number;
-  /** Projected from live stage timing — unlike the stored column, never stale. */
+  /** Projected from live stage timing - unlike the stored column, never stale. */
   expectedCompletionDate: Date;
 }
 
-export type WithLiveDelay<T> = Omit<T, "status"> & {
-  status: ProductStatus;
-  delay: LiveDelaySummary;
-};
+export type StageDefinitionRow = Awaited<ReturnType<typeof stageDefinitionRepository.findAll>>[number];
+export type StageHistoryRowFull = Awaited<
+  ReturnType<typeof productStageHistoryRepository.findAllByProducts>
+>[number];
 
 /**
- * Overlays live-computed `status` and a `delay` summary onto products for
- * reads. `products.status` is only persisted when a product is created or
- * transitioned, so a product that has since overrun its current stage would
- * otherwise read ON_TRACK. Batched: one query for the stage definitions and
- * one for every product's history, then the same pure `computeProductDelay`
- * per product in memory — not a query per product.
+ * Everything computed from the *full* stage history of a set of products: the
+ * stage definitions, each product's complete history, and its live delay
+ * result. Viewer projections (docs/architecture/0004) are built on top of this
+ * and only ever filter what is *shown* - the computation itself always runs over
+ * the whole workflow, otherwise an assignee's view would get wrong dates.
+ *
+ * Batched: one query for the stage definitions and one for every product's
+ * history, then the same pure `computeProductDelay` per product in memory.
  */
-export async function withLiveDelay<
-  T extends { id: string; status: ProductStatus; startDate: Date | null; createdAt: Date },
->(products: T[], db: Db = prisma): Promise<WithLiveDelay<T>[]> {
-  if (products.length === 0) return [];
+export interface LiveDelayContext {
+  stageDefs: StageDefinitionRow[];
+  historyByProduct: Map<string, StageHistoryRowFull[]>;
+  delayByProduct: Map<string, DelayComputationResult>;
+}
+
+export async function computeLiveDelays(
+  products: { id: string; startDate: Date | null; createdAt: Date }[],
+  db: Db = prisma,
+): Promise<LiveDelayContext> {
+  const context: LiveDelayContext = {
+    stageDefs: [],
+    historyByProduct: new Map(),
+    delayByProduct: new Map(),
+  };
+  if (products.length === 0) return context;
 
   const [stageDefs, history] = await Promise.all([
     stageDefinitionRepository.findAll(db),
@@ -138,30 +152,43 @@ export async function withLiveDelay<
       db,
     ),
   ]);
+  context.stageDefs = stageDefs;
 
-  const historyByProduct = new Map<string, typeof history>();
   for (const entry of history) {
-    const rows = historyByProduct.get(entry.productId) ?? [];
+    const rows = context.historyByProduct.get(entry.productId) ?? [];
     rows.push(entry);
-    historyByProduct.set(entry.productId, rows);
+    context.historyByProduct.set(entry.productId, rows);
   }
 
   const referenceDate = new Date();
+  for (const product of products) {
+    context.delayByProduct.set(
+      product.id,
+      computeProductDelay({
+        ...toDelayInput(product, stageDefs, context.historyByProduct.get(product.id) ?? []),
+        referenceDate,
+      }),
+    );
+  }
 
-  return products.map((product) => {
-    const result = computeProductDelay({
-      ...toDelayInput(product, stageDefs, historyByProduct.get(product.id) ?? []),
-      referenceDate,
-    });
+  return context;
+}
 
-    return {
-      ...product,
-      status: deriveStatus(product.status, result.delayed),
-      delay: {
-        delayed: result.delayed,
-        totalDelayDays: result.totalDelayDays,
-        expectedCompletionDate: result.expectedCompletionDate,
-      },
-    };
-  });
+/**
+ * The live `status` and `delay` summary for a product a viewer is allowed to
+ * see in full. `products.status` is only persisted on create/transition, so
+ * reads never trust it (except BLOCKED, which is manual).
+ */
+export function liveDelayFields(
+  storedStatus: ProductStatus,
+  result: DelayComputationResult,
+): { status: ProductStatus; delay: LiveDelaySummary } {
+  return {
+    status: deriveStatus(storedStatus, result.delayed),
+    delay: {
+      delayed: result.delayed,
+      totalDelayDays: result.totalDelayDays,
+      expectedCompletionDate: result.expectedCompletionDate,
+    },
+  };
 }

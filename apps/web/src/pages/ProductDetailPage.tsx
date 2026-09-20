@@ -31,6 +31,16 @@ export function ProductDetailPage() {
       </p>
       <AsyncView state={state}>
         {({ product, delay, stages }) => {
+          // The assignee view (only your own stages) gets its own UI in the
+          // frontend session; this page renders the full view.
+          if (product.view !== 'full' || delay.view !== 'full') {
+            return (
+              <p className="muted">
+                You're assigned to part of this product. The assignee view isn't built yet.
+              </p>
+            )
+          }
+
           const delayByOrder = new Map(delay.stages.map((s) => [s.sequenceOrder, s]))
 
           return (
