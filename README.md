@@ -203,21 +203,50 @@ new version.
 
 ## Frontend (Module 1)
 
-`apps/web` is a read-only React + Vite app (React Router) over the API above,
-using response types from `packages/shared-types`. Set `VITE_API_URL` to point
-it at the API (defaults to `http://localhost:4000`).
+`apps/web` is a React + Vite app (React Router) over the API above, using response
+types from `packages/shared-types`. Set `VITE_API_URL` to point it at the API
+(defaults to `http://localhost:4000`).
 
-**Known gaps:** the API requires a token and the web app has no login screen yet,
-so against a real API its pages get `401` (its tests stub `fetch`, so they still
-pass). It also only renders the full view of a product; the assignee view, and
-everything in [Access control](#access-control), get their UI in the frontend
-session that adds login.
+**Logging in.** Every route except `/login` needs a logged-in user; anyone else is
+redirected to the login page and, after logging in, taken back to where they were
+headed. Seeded dev users (`admin@`, `owner@`, `engineer@`, `finance@kyvera.dev`, password
+`kyvera-dev-password`) can log in; see the Authentication section above.
+
+**Where the token lives: in memory only.** The access token is held in a module-level
+variable owned by `AuthProvider` - never `localStorage`, `sessionStorage` or a cookie,
+because anything a script can read from storage, an injected script can read too. The
+trade-off is deliberate and explicit: **a hard refresh logs you out**. There is no
+refresh-token flow yet (access tokens last an hour), so there is nothing to
+silently restore a session from. Logging out just drops the token; the API is stateless,
+so there is no server-side revocation, and a token copied elsewhere stays valid until
+it expires. An expired or invalid token (a `401`) sends you to the login page with an
+explanation rather than a broken page.
+
+**Two views of a product** (see [Access control](#access-control)), chosen by the
+`view` field the API returns:
+
+| `view` | Who | What is shown |
+|---|---|---|
+| `full` | admin, owner, assigned manager | The list, delayed and detail pages: stage timeline with per-stage delay, assignments, progress notes, stage history, versions. |
+| `assignee` | anyone else assigned to a stage | "Assigned to you": only their own stage(s) with a readiness hint ("Open now", "You're up next: opens in ~5 days"). The detail page adds their ready mark, history, notes, and actions to mark their part ready, add a note, and complete the stage. |
+
+The assignee pages render only what the API sent and request nothing else: no
+`/stages`, no `/delay`, no other stage's name. The API does not say how many people
+share a stage, so "Complete this stage" is offered whenever the stage is open and the
+server's own reason is shown if it refuses.
+
+**CORS.** The API only accepts browser requests from an explicit allowlist
+(`CORS_ALLOWED_ORIGINS`, default `http://localhost:5173`, never a wildcard). If Vite
+starts on another port, add that origin or the browser will block every request; the
+login page then says the API could not be reached and names CORS, rather than
+reporting a bad password.
 
 | Route | View |
 |---|---|
-| `/` | Product list — stage, owner, live status, projected completion. |
-| `/delayed` | Products that are currently delayed, worst first. |
-| `/products/:id` | Detail: stage timeline with per-stage delay, stage history, versions. |
+| `/login` | Log in. |
+| `/` | Product list: full products (stage, owner, live status, projected completion), then "Assigned to you". |
+| `/delayed` | Products that are currently delayed, worst first, then "Your stages running late". |
+| `/products/:id` | Detail, in the full or assignee shape. |
 
 ## Local setup
 

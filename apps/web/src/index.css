@@ -138,3 +138,135 @@ td.delay {
 .versions li {
   margin-bottom: 1rem;
 }
+
+/* --- auth --- */
+
+.app-header .account {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+
+.login {
+  max-width: 24rem;
+  margin: 3rem auto;
+}
+
+.login form,
+.note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.login label,
+.note-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.login input,
+.note-form textarea {
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+
+button {
+  font: inherit;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.link-button {
+  border: none;
+  background: none;
+  padding: 0;
+}
+
+.notice {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+/* --- assignee view --- */
+
+.stage-card {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin: 1.25rem 0;
+}
+
+.stage-card h2 {
+  margin: 0;
+}
+
+.readiness {
+  margin: 0.25rem 0 0;
+  font-weight: 600;
+}
+
+.readiness-open_now {
+  color: var(--ok);
+}
+
+.readiness-up_next {
+  color: var(--warn);
+}
+
+.readiness-completed {
+  color: var(--muted);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 1rem 0;
+}
+
+.actions p {
+  margin: 0;
+}
+
+.notes {
+  list-style: none;
+  padding: 0;
+}
+
+.notes li {
+  margin-bottom: 0.9rem;
+}
+
+.notes li p {
+  margin: 0 0 0.15rem;
+}
