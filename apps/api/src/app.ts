@@ -1,13 +1,33 @@
 import cors from "cors";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { Prisma } from "@prisma/client";
+import { getAllowedOrigins } from "./config";
 import { routes } from "./routes";
 import { AppError } from "./services/errors";
 
 export function createApp(): Express {
   const app = express();
 
-  app.use(cors());
+  // An explicit allowlist, not the wildcard default: the API takes bearer tokens.
+  // An origin that isn't on it gets no CORS response headers of any kind (the CORS
+  // layer is skipped entirely), so a browser refuses to hand the response to the
+  // calling page. Requests with no Origin header (curl, server-to-server) are not
+  // browsers and are unaffected.
+  const allowedOrigins = getAllowedOrigins();
+  const corsForAllowedOrigins = cors({
+    origin: allowedOrigins,
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+    allowedHeaders: ["Authorization", "Content-Type"],
+    maxAge: 600, // let browsers cache the preflight for 10 minutes
+  });
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin !== undefined && !allowedOrigins.includes(origin)) {
+      next();
+      return;
+    }
+    corsForAllowedOrigins(req, res, next);
+  });
   app.use(express.json());
 
   app.get("/health", (_req, res) => {

@@ -28,7 +28,45 @@ export function getAccessTokenTtlSeconds(): number {
   return seconds;
 }
 
+const DEFAULT_ALLOWED_ORIGINS = ["http://localhost:5173"]; // the Vite dev server
+
+/**
+ * The browser origins allowed to call this API (CORS). An explicit list, never a
+ * wildcard: requests carry a bearer token, and "any site may read the responses"
+ * is not something to opt into by accident. Comma-separated in
+ * `CORS_ALLOWED_ORIGINS`; defaults to the Vite dev origin.
+ */
+export function getAllowedOrigins(): string[] {
+  const raw = process.env.CORS_ALLOWED_ORIGINS;
+  if (raw === undefined || raw.trim() === "") return DEFAULT_ALLOWED_ORIGINS;
+
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "")
+    .map((entry) => {
+      if (entry === "*") {
+        throw new Error("CORS_ALLOWED_ORIGINS must list explicit origins, not a wildcard");
+      }
+      // An origin is scheme + host (+ port): no path, no trailing slash. Browsers
+      // send it in exactly that form, so anything else could never match.
+      let origin: string;
+      try {
+        origin = new URL(entry).origin;
+      } catch {
+        throw new Error(`CORS_ALLOWED_ORIGINS has an invalid origin: ${entry}`);
+      }
+      if (origin !== entry) {
+        throw new Error(
+          `CORS_ALLOWED_ORIGINS entries must be bare origins like ${origin}, got: ${entry}`,
+        );
+      }
+      return origin;
+    });
+}
+
 export function assertAuthConfig(): void {
   getJwtSecret();
   getAccessTokenTtlSeconds();
+  getAllowedOrigins();
 }
