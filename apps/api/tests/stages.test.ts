@@ -1,12 +1,17 @@
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
-import { authedAgent } from "./helpers/auth";
+import { cleanupTestUsers, createTestUser, type TestAgent } from "./helpers/auth";
 
 const app = createApp();
-const api = authedAgent(app);
+let api: TestAgent;
+
+beforeAll(async () => {
+  api = (await createTestUser(app, "ADMIN")).agent;
+});
 
 afterAll(async () => {
+  await cleanupTestUsers();
   await prisma.$disconnect();
 });
 

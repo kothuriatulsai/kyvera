@@ -2,15 +2,20 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
-import { authedAgent } from "./helpers/auth";
+import { cleanupTestUsers, createTestUser, type TestAgent } from "./helpers/auth";
 
 const app = createApp();
-const api = authedAgent(app);
+let api: TestAgent;
 
 let ownerId: string;
 let responsibleUserId: string;
 
 beforeAll(async () => {
+  // An admin: every product is visible and every action is allowed, so this
+  // suite keeps exercising the product/workflow behaviour itself. Who may see
+  // or do what is covered in access.test.ts.
+  api = (await createTestUser(app, "ADMIN")).agent;
+
   const stageCount = await prisma.stageDefinition.count();
   if (stageCount === 0) {
     throw new Error(
@@ -41,6 +46,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.user.deleteMany({ where: { id: { in: [ownerId, responsibleUserId] } } });
+  await cleanupTestUsers();
   await prisma.$disconnect();
 });
 
