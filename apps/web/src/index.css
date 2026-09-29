@@ -270,3 +270,142 @@ button:disabled {
 .notes li p {
   margin: 0 0 0.15rem;
 }
+
+/* --- actions on a product (full view) --- */
+
+.actions-panel {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+}
+
+.actions-panel h2 {
+  margin: 0 0 0.25rem;
+}
+
+.actions-panel h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 1rem 0;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.control p {
+  margin: 0;
+}
+
+.control label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+  width: 100%;
+}
+
+.control textarea {
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+}
+
+.control fieldset {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem 0.9rem;
+  display: flex;
+  gap: 1.5rem;
+}
+
+.control .choice {
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+  gap: 0.4rem;
+}
+
+.consequences {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.9rem;
+}
+
+.confirm {
+  border: 1px solid var(--warn);
+  border-radius: 4px;
+  padding: 0.75rem 1rem;
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+
+.confirm p {
+  margin: 0 0 0.6rem;
+}
+
+.confirm-buttons {
+  display: flex;
+  gap: 0.6rem;
+}
+
+/* --- responsible assignees popover --- */
+
+.assignees {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.info-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.1rem;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.info-button:hover,
+.info-button[aria-expanded='true'] {
+  color: inherit;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.popover {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 10;
+  margin-top: 0.35rem;
+  min-width: 11rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: Canvas;
+  color: CanvasText;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 15%);
+}
+
+.popover ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.popover li {
+  padding: 0.15rem 0;
+  white-space: nowrap;
+}

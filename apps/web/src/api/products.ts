@@ -6,6 +6,7 @@ import type {
   ProductDetailView,
   ProductListEntry,
   StageDefinition,
+  TransitionRequest,
 } from '@kyvera/shared-types'
 import { apiGet, apiPost } from './client'
 
@@ -38,5 +39,12 @@ export const addProgressNote = (productId: string, stageId: string, note: string
  * (a stage's sole assignee can; otherwise an admin, owner or assigned manager),
  * and answers 403 with the reason when they can't.
  */
-export const advanceStage = (productId: string) =>
-  apiPost<ProductDetailView>(`/products/${enc(productId)}/transition`, {})
+export const advanceStage = (productId: string) => transitionProduct(productId, {})
+
+/**
+ * The one transition endpoint behind advancing, forcing, moving back and deciding
+ * an approval: what happens depends only on the body (`force`, `direction` +
+ * `reason`, `approval`). The server decides whether the caller may.
+ */
+export const transitionProduct = (productId: string, body: TransitionRequest) =>
+  apiPost<ProductDetailView>(`/products/${enc(productId)}/transition`, body)

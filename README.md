@@ -117,7 +117,7 @@ What each product endpoint returns depends on who is asking: see
 | `GET` | `/products` | The products the caller can see, each shaped for their access, with live-computed `status` and a `delay` summary (see below). |
 | `POST` | `/products` | Create a product. Also creates its v1 `ProductVersion` and opens the first `ProductStageHistory` entry. Open to any authenticated user (who may create, and `ownerId`, are not settled by the ADRs). |
 | `GET` | `/products/:id` | Detail: for admin/owner/assigned manager, owner, current stage, versions, stage history, approvals, assignments and progress notes; for an assignee, only their own stages. |
-| `GET` | `/products/:id/delay` | Live per-stage delay breakdown plus the projected `expectedCompletionDate` (assignees get only their own stages). |
+| `GET` | `/products/:id/delay` | Live per-stage delay breakdown plus the projected `expectedCompletionDate` (assignees get only their own stages). Each stage's `status` is `completed`, `in_progress`, `not_started`, or `sent_back`: a stage the product visited and then left by moving *backward*, which is ahead of it now and will be done again. |
 | `PATCH` | `/products/:id` | Update `name`/`description`/`ownerId`/`status`/`expectedCompletionDate`/`actualCompletionDate`. Needs authority over the product, and changing `ownerId` is admin-only. `status` is derived from delay, so only `BLOCKED` can be set manually; `DELAYED` is rejected with a `400`, and `ON_TRACK` is accepted only to clear a `BLOCKED` product (the stored value is then re-derived). |
 | `DELETE` | `/products/:id` | Deletes the product and its versions/stage history. |
 | `POST` | `/products/:id/versions` | Create a new `ProductVersion`, bumping `currentVersion`. |
@@ -227,8 +227,31 @@ explanation rather than a broken page.
 
 | `view` | Who | What is shown |
 |---|---|---|
-| `full` | admin, owner, assigned manager | The list, delayed and detail pages: stage timeline with per-stage delay, assignments, progress notes, stage history, versions. |
+| `full` | admin, owner, assigned manager | The list, delayed and detail pages: stage timeline with per-stage delay, assignments, progress notes, approval decisions, stage history, versions - plus the actions below. In the stage history, each entry's **Outcome** says whether the product left it by completing it or by being sent back, and **Responsible** shows the stage's assignees (one name, or "Multiple" with an info icon that opens a list of everyone). |
 | `assignee` | anyone else assigned to a stage | "Assigned to you": only their own stage(s) with a readiness hint ("Open now", "You're up next: opens in ~5 days"). The detail page adds their ready mark, history, notes, and actions to mark their part ready, add a note, and complete the stage. |
+
+**Acting on a product (full view).** The detail page has an **Actions** panel for the
+people who hold authority over the product. There is no separate permission check in the
+UI: the API returns `view: "full"` to exactly those people, so the panel only exists in
+that view (an assignee gets their own view and a user with no tie gets a `404`), and the
+server enforces every action regardless. There are three controls (advance, which
+becomes *force* advance when a sign-off would be overridden; move back; and the approval
+decision), all calling `POST /products/:id/transition`:
+
+| Control | When | Request |
+|---|---|---|
+| **Advance** | Any stage but the last, when nobody needs overriding | `{}` (no `force` at all) |
+| **Force advance** | The current stage has several assignees who have not all signed off. It asks first, saying concretely what is overridden ("2 of 3 assignees haven't signed off", and who) | `{ force: true }`, only after confirming |
+| **Move back** | Any stage but the first. The reason is required; the button stays disabled until there is one | `{ direction: "backward", reason }` |
+| **Approval decision** | Replaces Advance one step before the final stage. Choose Approved or Rejected; Rejected needs notes and the page says it moves the product *back one stage*, not just declines it | `{ approval: { decision, notes? } }` |
+
+The sign-off count comes from the assignments already on the page, so it can be stale by
+the time someone clicks; the server re-checks, and a `403`/`409` is shown inline (the
+page then refreshes). Approving a stage that is not fully signed off asks the same
+confirmation and sends `force: true` alongside the decision, because moving into the
+final stage is a forward move like any other; rejecting never needs it (it is a backward
+move). Not built yet: creating, editing, deleting or versioning a product, and managing
+assignments.
 
 The assignee pages render only what the API sent and request nothing else: no
 `/stages`, no `/delay`, no other stage's name. The API does not say how many people

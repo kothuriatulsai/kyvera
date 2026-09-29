@@ -142,6 +142,94 @@ describe("computeProductDelay", () => {
     expect(stage1).toMatchObject({ status: "completed", durationDays: 2, delayed: false });
   });
 
+  describe("a product that has been moved backward", () => {
+    // Stages: 1 (5d), 2 (7d), 3 (3d). Each visit: [stage, entered, exited-or-null].
+    const visit = (
+      stage: number,
+      enteredDay: number,
+      exitedDay: number | null,
+    ): StageVisit => ({
+      stageSequenceOrder: stage,
+      enteredAt: daysAfterStart(enteredDay),
+      exitedAt: exitedDay === null ? null : daysAfterStart(exitedDay),
+      actualDurationDays: exitedDay === null ? null : exitedDay - enteredDay,
+    });
+
+    const statusesOf = (history: StageVisit[], referenceDay: number) =>
+      computeProductDelay({
+        startDate: START_DATE,
+        stages: STAGES,
+        history,
+        referenceDate: daysAfterStart(referenceDay),
+      }).stages.map((s) => s.status);
+
+    it("does not call the stage it was sent back from 'completed'", () => {
+      // 1 -> 2 -> 3, then sent back from 3 to 2 (a new, open visit to stage 2).
+      const statuses = statusesOf(
+        [visit(1, 0, 5), visit(2, 5, 9), visit(3, 9, 11), visit(2, 11, null)],
+        12,
+      );
+
+      expect(statuses).toEqual(["completed", "in_progress", "sent_back"]);
+    });
+
+    it("marks every stage it has been sent back past, when moved back more than once", () => {
+      // 1 -> 2 -> 3, back to 2, back again to 1.
+      const statuses = statusesOf(
+        [visit(1, 0, 5), visit(2, 5, 9), visit(3, 9, 11), visit(2, 11, 13), visit(1, 13, null)],
+        14,
+      );
+
+      expect(statuses).toEqual(["in_progress", "sent_back", "sent_back"]);
+    });
+
+    it("goes back to completed / in progress as the product moves forward again", () => {
+      // ...and then forward once more, to stage 2.
+      const statuses = statusesOf(
+        [
+          visit(1, 0, 5),
+          visit(2, 5, 9),
+          visit(3, 9, 11),
+          visit(2, 11, 13),
+          visit(1, 13, 15),
+          visit(2, 15, null),
+        ],
+        16,
+      );
+
+      // Stage 3 is still ahead of it and was left behind on the way back.
+      expect(statuses).toEqual(["completed", "in_progress", "sent_back"]);
+    });
+
+    it("keeps calling a stage 'not started' if it was never reached", () => {
+      // Sent back from 2 to 1 having never got to 3.
+      const statuses = statusesOf([visit(1, 0, 5), visit(2, 5, 8), visit(1, 8, null)], 9);
+
+      expect(statuses).toEqual(["in_progress", "sent_back", "not_started"]);
+    });
+
+    it("leaves the numbers exactly as they were: only the label changes", () => {
+      const result = computeProductDelay({
+        startDate: START_DATE,
+        stages: STAGES,
+        history: [visit(1, 0, 5), visit(2, 5, 9), visit(3, 9, 11), visit(2, 11, null)],
+        referenceDate: daysAfterStart(12),
+      });
+
+      // Stage 3 was left after 2 days; that is still what it contributes.
+      expect(result.stages[2]).toMatchObject({ durationDays: 2, delayDays: 0, delayed: false });
+      // Projection: 5 + max(7, 1) + 2 = 14 days from the start.
+      expect(result.expectedCompletionDate).toEqual(daysAfterStart(14));
+    });
+
+    it("does not treat a stage as sent back when there is no open visit to say where the product is", () => {
+      // No visit is open, so there is no 'current' stage to be behind: unchanged behaviour.
+      const statuses = statusesOf([visit(1, 0, 5), visit(2, 5, 9)], 9);
+
+      expect(statuses).toEqual(["completed", "completed", "not_started"]);
+    });
+  });
+
   it("sums delay across multiple delayed stages", () => {
     const history: StageVisit[] = [
       {

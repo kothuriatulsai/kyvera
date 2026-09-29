@@ -192,7 +192,12 @@ export interface ProductDetail extends ProductListItem {
   progressNotes: StageProgressNote[];
 }
 
-export type StageProgress = "completed" | "in_progress" | "not_started";
+/**
+ * Where a stage stands for a product. `sent_back` is a stage the product visited
+ * and then left by moving *backward*: it is ahead of the product now and will be
+ * done again, so it is not `completed`.
+ */
+export type StageProgress = "completed" | "in_progress" | "not_started" | "sent_back";
 
 export interface StageDelay {
   sequenceOrder: number;

@@ -3,12 +3,12 @@ import { fetchProduct, fetchProductDelay, fetchStages } from '../api/products'
 import { AssigneeProductDetail } from '../components/AssigneeProductDetail'
 import { AsyncView } from '../components/AsyncView'
 import { FullProductDetail } from '../components/FullProductDetail'
-import { useAsync } from '../hooks/useAsync'
+import { useAsyncWithReload } from '../hooks/useAsync'
 
 export function ProductDetailPage() {
   const { id = '' } = useParams()
 
-  const state = useAsync(async () => {
+  const { state, reload } = useAsyncWithReload(async () => {
     const product = await fetchProduct(id)
 
     // Someone assigned to part of the product gets only their own stages, and
@@ -37,7 +37,12 @@ export function ProductDetailPage() {
             // carry one's local state (typed note, error) over to the other.
             <AssigneeProductDetail key={data.product.id} initial={data.product} />
           ) : (
-            <FullProductDetail product={data.product} delay={data.delay} stages={data.stages} />
+            <FullProductDetail
+              product={data.product}
+              delay={data.delay}
+              stages={data.stages}
+              onChanged={reload}
+            />
           )
         }
       </AsyncView>
