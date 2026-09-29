@@ -5,23 +5,36 @@ import type {
   StageProgress,
 } from '@kyvera/shared-types'
 import { formatDate, formatDays } from '../lib/format'
+import { historyOutcomes, OUTCOME_LABELS } from '../lib/history'
+import { AssigneesCell } from './AssigneesCell'
+import { ProductActions } from './ProductActions'
 import { StatusBadge } from './StatusBadge'
 
 const PROGRESS_LABELS: Record<StageProgress, string> = {
   completed: 'Completed',
   in_progress: 'In progress',
   not_started: 'Not started',
+  // Visited, then left by moving the product backward: it has to be done again.
+  sent_back: 'Sent back',
 }
 
 interface FullProductDetailProps {
   product: ProductDetail
   delay: ProductDelay
   stages: StageDefinition[]
+  /** Reload the page's data after an action. */
+  onChanged: () => Promise<void>
 }
 
 /** A product as an admin, its owner or an assigned manager sees it: all of it. */
-export function FullProductDetail({ product, delay, stages }: FullProductDetailProps) {
+export function FullProductDetail({ product, delay, stages, onChanged }: FullProductDetailProps) {
   const delayByOrder = new Map(delay.stages.map((s) => [s.sequenceOrder, s]))
+  const outcomes = historyOutcomes(product.stageHistory)
+
+  // Who is assigned to each stage. These are the *current* assignments: the API
+  // doesn't keep who was assigned at the time of an earlier visit.
+  const assigneesOf = (stageId: string) =>
+    product.assignments.filter((a) => a.stageId === stageId).map((a) => a.user)
 
   return (
     <>
@@ -53,6 +66,15 @@ export function FullProductDetail({ product, delay, stages }: FullProductDetailP
           <dd>{formatDays(delay.totalDelayDays)}</dd>
         </div>
       </dl>
+
+      {/* Keyed by stage: once the product moves, the controls start fresh (no
+          half-typed reason or chosen decision carried over to the new stage). */}
+      <ProductActions
+        key={product.currentStageId ?? 'none'}
+        product={product}
+        stages={stages}
+        onChanged={onChanged}
+      />
 
       <h2>Timeline</h2>
       <table>
@@ -127,6 +149,34 @@ export function FullProductDetail({ product, delay, stages }: FullProductDetailP
         </ul>
       )}
 
+      <h2>Approvals</h2>
+      {product.approvals.length === 0 ? (
+        <p className="muted">No approval decisions yet.</p>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Decision</th>
+              <th>Version</th>
+              <th>Decided by</th>
+              <th>When</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {product.approvals.map((approval) => (
+              <tr key={approval.id}>
+                <td>{approval.decision === 'APPROVED' ? 'Approved' : 'Rejected'}</td>
+                <td>v{approval.productVersion.versionNumber}</td>
+                <td>{approval.decidedBy.name}</td>
+                <td>{formatDate(approval.decidedAt)}</td>
+                <td>{approval.notes ?? ''}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
       <h2>Stage history</h2>
       <table>
         <thead>
@@ -134,6 +184,7 @@ export function FullProductDetail({ product, delay, stages }: FullProductDetailP
             <th>Stage</th>
             <th>Entered</th>
             <th>Exited</th>
+            <th>Outcome</th>
             <th>Responsible</th>
             <th>Note</th>
           </tr>
@@ -143,8 +194,15 @@ export function FullProductDetail({ product, delay, stages }: FullProductDetailP
             <tr key={entry.id}>
               <td>{entry.stage.name}</td>
               <td>{formatDate(entry.enteredAt)}</td>
-              <td>{entry.exitedAt ? formatDate(entry.exitedAt) : 'Current'}</td>
-              <td>{entry.responsibleUser?.name ?? '—'}</td>
+              <td>{entry.exitedAt ? formatDate(entry.exitedAt) : '—'}</td>
+              <td>{OUTCOME_LABELS[outcomes.get(entry.id) ?? 'completed']}</td>
+              <td>
+                <AssigneesCell
+                  stageName={entry.stage.name}
+                  assignees={assigneesOf(entry.stageId)}
+                  fallback={entry.responsibleUser}
+                />
+              </td>
               <td>
                 {entry.delayReason ?? ''}
                 {entry.forcedExit ? ' (advanced without every sign-off)' : ''}

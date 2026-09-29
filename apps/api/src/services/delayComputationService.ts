@@ -20,7 +20,12 @@ export interface DelayComputationInput {
   referenceDate?: Date;
 }
 
-export type StageStatus = "completed" | "in_progress" | "not_started";
+/**
+ * `sent_back` is a stage the product visited and then left by moving *backward*:
+ * it is ahead of where the product is now and will have to be done again. It is
+ * not `completed`, and it is not quite `not_started` either - it has history.
+ */
+export type StageStatus = "completed" | "in_progress" | "not_started" | "sent_back";
 
 export interface StageDelayResult {
   sequenceOrder: number;
@@ -60,6 +65,17 @@ export function computeProductDelay(input: DelayComputationInput): DelayComputat
     }
   }
 
+  // Where the product is now: the stage of its open visit. A stage *ahead* of that
+  // which has a closed visit was left by moving backward, not by finishing it.
+  // With no open visit there is no "now" to be behind, so nothing is called sent back.
+  const openVisit = input.history
+    .filter((visit) => visit.exitedAt === null)
+    .reduce<StageVisit | null>(
+      (latest, visit) => (latest === null || visit.enteredAt > latest.enteredAt ? visit : latest),
+      null,
+    );
+  const currentSequenceOrder = openVisit?.stageSequenceOrder ?? null;
+
   const stages: StageDelayResult[] = sortedStages.map((stage) => {
     const visit = latestVisitByStage.get(stage.sequenceOrder);
 
@@ -70,7 +86,12 @@ export function computeProductDelay(input: DelayComputationInput): DelayComputat
       status = "not_started";
       durationDays = stage.expectedDurationDays;
     } else if (visit.exitedAt) {
-      status = "completed";
+      // Only the label depends on direction; the numbers below don't, so the
+      // projected completion date and delay are exactly what they were.
+      status =
+        currentSequenceOrder !== null && stage.sequenceOrder > currentSequenceOrder
+          ? "sent_back"
+          : "completed";
       durationDays = visit.actualDurationDays ?? diffInDays(visit.enteredAt, visit.exitedAt);
     } else {
       status = "in_progress";

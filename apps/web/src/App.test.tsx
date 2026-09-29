@@ -2,6 +2,7 @@ import { screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import {
   adminSession,
+  adminUser,
   assigneeSummary,
   lateDelay,
   lateDetail,
@@ -71,6 +72,60 @@ describe('full views (admin, owner, assigned manager)', () => {
     const assignments = screen.getByRole('heading', { name: 'Assignments' }).nextElementSibling!
     expect(within(assignments as HTMLElement).getByText('Eli Engineer')).toBeTruthy()
     expect(screen.getByText('Waiting on the housing supplier')).toBeTruthy()
+  })
+
+  it('shows the approval decisions recorded against a product, newest first', async () => {
+    stubFullApi([
+      route('GET', '/products/p-late', {
+        body: {
+          ...lateDetail,
+          approvals: [
+            {
+              id: 'ap2',
+              productId: 'p-late',
+              productVersionId: 'v1',
+              productVersion: { versionNumber: 1 },
+              stageId: 's9',
+              decision: 'APPROVED',
+              decidedById: 'u-admin',
+              decidedBy: adminUser,
+              decidedAt: '2026-09-10T00:00:00.000Z',
+              notes: 'ship it',
+            },
+            {
+              id: 'ap1',
+              productId: 'p-late',
+              productVersionId: 'v1',
+              productVersion: { versionNumber: 1 },
+              stageId: 's9',
+              decision: 'REJECTED',
+              decidedById: 'u-admin',
+              decidedBy: adminUser,
+              decidedAt: '2026-09-05T00:00:00.000Z',
+              notes: 'fails the drop test',
+            },
+          ],
+        },
+      }),
+    ])
+    renderApp('/products/p-late', { session: adminSession })
+
+    await screen.findByRole('heading', { name: 'Approvals' })
+    const table = screen.getByRole('heading', { name: 'Approvals' }).nextElementSibling as HTMLElement
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining('Approved'),
+      expect.stringContaining('Rejected'),
+    ])
+    expect(within(table).getByText('fails the drop test')).toBeTruthy()
+    expect(within(table).getAllByText('Alex Admin')).toHaveLength(2)
+  })
+
+  it('says so when a product has no approval decisions yet', async () => {
+    stubFullApi()
+    renderApp('/products/p-late', { session: adminSession })
+
+    await screen.findByText('No approval decisions yet.')
   })
 
   it('carries the logged-in user’s token on every request', async () => {
