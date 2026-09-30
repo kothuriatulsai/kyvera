@@ -6,11 +6,20 @@ datasource db {
   provider = "postgresql"
 }
 
+// Additive expansion for the SOP domain (ADR 0006/0007): MANAGER and ENGINEER
+// are legacy, kept as-is for the old module - not renamed or removed. The new
+// SOP roles get their own values. Consolidation is deferred to the PR that
+// removes the old module.
 enum UserRole {
   ADMIN
   MANAGER
   ENGINEER
   FINANCE
+  PMO
+  PRODUCT_DESIGNER
+  ENGINEERING
+  MANAGEMENT
+  MERCHANDISER
 
   @@map("user_role")
 }
@@ -55,6 +64,16 @@ model User {
   assignmentHistoryAbout ProductStageAssignmentHistory[] @relation("AssignmentHistoryUser")
   assignmentHistoryActed ProductStageAssignmentHistory[] @relation("AssignmentHistoryActor")
   progressNotes          StageProgressNote[]             @relation("ProgressNoteAuthor")
+
+  // SOP domain (ADR 0006/0007) - additive, disjoint from the relations above.
+  projectsCreated          Project[]              @relation("ProjectCreator")
+  techPacksCreated         TechPack[]             @relation("TechPackCreator")
+  techPacksVoided          TechPack[]             @relation("TechPackVoider")
+  techPackVersionsUploaded TechPackVersion[]      @relation("TechPackVersionUploader")
+  techPackRemarks          TechPackRemark[]       @relation("TechPackRemarkAuthor")
+  techPackConfirmations    TechPackConfirmation[] @relation("TechPackConfirmer")
+  techPackApprovals        TechPackApproval[]     @relation("TechPackApprover")
+  attachmentsUploaded      Attachment[]           @relation("AttachmentUploader")
 
   @@map("users")
 }
@@ -225,4 +244,191 @@ model StageProgressNote {
 
   @@index([productId, stageId])
   @@map("stage_progress_notes")
+}
+
+// =============================================================================
+// SOP domain (ADR 0006, ADR 0007, ADR 0008) - Slice A: Project, Tech Pack +
+// versions, Engineering confirmation / Management approval, Proto Request.
+// Coexists with the models above without referencing them (ADR 0007); shares
+// only `User`. Every relation here uses onDelete: Restrict, deliberately
+// stricter than the old module's Cascade (ADR 0006, point 9).
+//
+// `code` columns default to a Postgres sequence + format_code() call via
+// dbgenerated() - see ADR 0006 for the exact migration-SQL procedure this
+// requires (sequences and the function must exist before these defaults do).
+// =============================================================================
+
+enum ProjectPhase {
+  PROTO
+  BULK
+
+  @@map("project_phase")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  COMPLETED
+
+  @@map("project_status")
+}
+
+model Project {
+  id               String        @id @default(uuid()) @db.Uuid
+  code             String        @unique @default(dbgenerated("format_code('PRJ'::text, nextval('prj_code_seq'::regclass))"))
+  name             String
+  productName      String        @map("product_name")
+  productCategory  String?       @map("product_category")
+  phase            ProjectPhase  @default(PROTO)
+  status           ProjectStatus @default(ACTIVE)
+  protoCompletedAt DateTime?     @map("proto_completed_at")
+  completedAt      DateTime?     @map("completed_at")
+  createdById      String        @map("created_by") @db.Uuid
+  createdBy        User          @relation("ProjectCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  techPacks     TechPack[]
+  protoRequests ProtoRequest[]
+
+  @@map("projects")
+}
+
+// One row per TP number (parent); revisions are child TechPackVersion rows.
+// A Management rejection voids this row (voidedAt/voidedById/voidReason) and
+// a new TechPack is created under the same Project, linked back via
+// supersedesId on the new row.
+model TechPack {
+  id          String       @id @default(uuid()) @db.Uuid
+  code        String       @unique @default(dbgenerated("format_code('TP'::text, nextval('tp_code_seq'::regclass))"))
+  projectId   String       @map("project_id") @db.Uuid
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  // Copied from Project.phase at creation time, not read live - see ADR 0006
+  // point 6 (a later Proto->Bulk move on the Project must not retroactively
+  // reclassify a Tech Pack already reviewed under the old phase).
+  phase       ProjectPhase @default(PROTO)
+  createdById String       @map("created_by") @db.Uuid
+  createdBy   User         @relation("TechPackCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  voidedAt   DateTime? @map("voided_at")
+  voidedById String?   @map("voided_by") @db.Uuid
+  voidedBy   User?     @relation("TechPackVoider", fields: [voidedById], references: [id], onDelete: Restrict)
+  voidReason String?   @map("void_reason")
+
+  // Points from the new TechPack back at the one it replaced. Unique: a
+  // voided TechPack has at most one successor.
+  supersedesId String?   @unique @map("supersedes_id") @db.Uuid
+  supersedes   TechPack? @relation("TechPackSupersession", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy TechPack? @relation("TechPackSupersession")
+
+  versions TechPackVersion[]
+
+  @@index([projectId])
+  @@map("tech_packs")
+}
+
+model TechPackVersion {
+  id            String   @id @default(uuid()) @db.Uuid
+  techPackId    String   @map("tech_pack_id") @db.Uuid
+  techPack      TechPack @relation(fields: [techPackId], references: [id], onDelete: Restrict)
+  versionNumber Int      @map("version_number")
+  notes         String?
+  uploadedById  String   @map("uploaded_by") @db.Uuid
+  uploadedBy    User     @relation("TechPackVersionUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  uploadedAt    DateTime @default(now()) @map("uploaded_at")
+
+  attachments   Attachment[]
+  remarks       TechPackRemark[]
+  confirmation  TechPackConfirmation?
+  approval      TechPackApproval?
+  protoRequests ProtoRequest[]
+
+  @@unique([techPackId, versionNumber])
+  @@map("tech_pack_versions")
+}
+
+// File metadata only - bytes live behind the storage interface (ADR 0008).
+// One nullable FK per attachable entity (not a polymorphic owner_type/
+// owner_id pair); more owner columns are added here as later slices need
+// them (e.g. a purchase order in Slice B).
+model Attachment {
+  id           String   @id @default(uuid()) @db.Uuid
+  storageKey   String   @map("storage_key")
+  originalName String   @map("original_name")
+  mimeType     String   @map("mime_type")
+  sizeBytes    Int      @map("size_bytes")
+  uploadedById String   @map("uploaded_by") @db.Uuid
+  uploadedBy   User     @relation("AttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  uploadedAt   DateTime @default(now()) @map("uploaded_at")
+
+  techPackVersionId String?          @map("tech_pack_version_id") @db.Uuid
+  techPackVersion   TechPackVersion? @relation(fields: [techPackVersionId], references: [id], onDelete: Restrict)
+
+  @@index([techPackVersionId])
+  @@map("attachments")
+}
+
+// The system chat/remarks thread on one version during Engineering's review
+// (SOP Stage 3). Scoped functional data, not the deferred generic `comments`
+// table - same reasoning as StageProgressNote (ADR 0004, Resolution 9).
+model TechPackRemark {
+  id                String          @id @default(uuid()) @db.Uuid
+  techPackVersionId String          @map("tech_pack_version_id") @db.Uuid
+  techPackVersion   TechPackVersion @relation(fields: [techPackVersionId], references: [id], onDelete: Restrict)
+  authorId          String          @map("author_id") @db.Uuid
+  author            User            @relation("TechPackRemarkAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body              String
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  @@index([techPackVersionId])
+  @@map("tech_pack_remarks")
+}
+
+// Engineering's sign-off on one specific version. Unique on the version - a
+// version is confirmed at most once; a further change request is a
+// TechPackRemark on a new version, not a second row here.
+model TechPackConfirmation {
+  id                String          @id @default(uuid()) @db.Uuid
+  techPackVersionId String          @unique @map("tech_pack_version_id") @db.Uuid
+  techPackVersion   TechPackVersion @relation(fields: [techPackVersionId], references: [id], onDelete: Restrict)
+  confirmedById     String          @map("confirmed_by") @db.Uuid
+  confirmedBy       User            @relation("TechPackConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
+  confirmedAt       DateTime        @default(now()) @map("confirmed_at")
+
+  @@map("tech_pack_confirmations")
+}
+
+// Management's final decision. Service enforces this can only target the
+// latest version of the TechPack, and only once that version has a
+// TechPackConfirmation. APPROVED -> service creates a ProtoRequest; REJECTED
+// -> service voids this TechPack and creates a new one under the same
+// Project (supersedesId links them).
+model TechPackApproval {
+  id                String           @id @default(uuid()) @db.Uuid
+  techPackVersionId String           @unique @map("tech_pack_version_id") @db.Uuid
+  techPackVersion   TechPackVersion  @relation(fields: [techPackVersionId], references: [id], onDelete: Restrict)
+  decision          ApprovalDecision
+  decidedById       String           @map("decided_by") @db.Uuid
+  decidedBy         User             @relation("TechPackApprover", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt         DateTime         @default(now()) @map("decided_at")
+  notes             String?
+
+  @@map("tech_pack_approvals")
+}
+
+// Stage 3's output / Stage 4's subject - one record whose lifecycle spans
+// both (ADR 0006, point 8). Slice A writes only what Stage 3 produces; Slice
+// B adds manufacturer/PO/confirmation fields to this same table. No
+// techPackId column - the TechPack is reachable via techPackVersion.techPack,
+// so a second FK that has to agree with the first earns no query here.
+model ProtoRequest {
+  id                String          @id @default(uuid()) @db.Uuid
+  code              String          @unique @default(dbgenerated("format_code('PR'::text, nextval('pr_code_seq'::regclass))"))
+  projectId         String          @map("project_id") @db.Uuid
+  project           Project         @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  techPackVersionId String          @map("tech_pack_version_id") @db.Uuid
+  techPackVersion   TechPackVersion @relation(fields: [techPackVersionId], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now()) @map("created_at")
+
+  @@index([projectId, techPackVersionId])
+  @@map("proto_requests")
 }
