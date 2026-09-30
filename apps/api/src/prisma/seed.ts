@@ -25,6 +25,13 @@ const users = [
   { email: "engineer@kyvera.dev", name: "Eli Engineer", role: "ENGINEER" as const },
   { email: "finance@kyvera.dev", name: "Fran Finance", role: "FINANCE" as const },
   { email: "admin@kyvera.dev", name: "Alex Admin", role: "ADMIN" as const },
+
+  // SOP domain (ADR 0006/0007), one per new role.
+  { email: "pmo@kyvera.dev", name: "Priya PMO", role: "PMO" as const },
+  { email: "designer@kyvera.dev", name: "Deepa Designer", role: "PRODUCT_DESIGNER" as const },
+  { email: "engineering@kyvera.dev", name: "Emre Engineering", role: "ENGINEERING" as const },
+  { email: "management@kyvera.dev", name: "Mira Management", role: "MANAGEMENT" as const },
+  { email: "merchandiser@kyvera.dev", name: "Milo Merchandiser", role: "MERCHANDISER" as const },
 ];
 
 async function main() {
