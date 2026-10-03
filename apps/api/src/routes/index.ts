@@ -4,6 +4,7 @@ import { attachmentRoutes } from "./attachmentRoutes";
 import { authRoutes } from "./authRoutes";
 import { productRoutes } from "./productRoutes";
 import { projectRoutes } from "./projectRoutes";
+import { protoRequestRoutes } from "./protoRequestRoutes";
 import { stageRoutes } from "./stageRoutes";
 import { techPackRoutes } from "./techPackRoutes";
 
@@ -23,3 +24,4 @@ routes.use("/stages", stageRoutes);
 routes.use("/projects", projectRoutes);
 routes.use("/tech-packs", techPackRoutes);
 routes.use("/attachments", attachmentRoutes);
+routes.use("/proto-requests", protoRequestRoutes);

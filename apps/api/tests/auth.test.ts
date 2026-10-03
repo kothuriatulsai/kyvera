@@ -191,6 +191,9 @@ describe("authentication on protected routes", () => {
     ["GET", "/tech-packs/abc/versions/1/remarks"],
     ["POST", "/tech-packs/abc/versions/1/remarks"],
     ["POST", "/tech-packs/abc/versions/1/confirm"],
+    ["POST", "/tech-packs/abc/versions/1/decision"],
+    ["GET", "/proto-requests"],
+    ["GET", "/proto-requests/abc"],
     ["GET", "/attachments/abc/download"],
   ] as const)("requires a token for %s %s", async (method, path) => {
     const res = await request(app)[method.toLowerCase() as "get"](path);
