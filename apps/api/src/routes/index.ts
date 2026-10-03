@@ -1,9 +1,11 @@
 import { Router } from "express";
 import { authenticate } from "../middleware/authenticate";
+import { attachmentRoutes } from "./attachmentRoutes";
 import { authRoutes } from "./authRoutes";
 import { productRoutes } from "./productRoutes";
 import { projectRoutes } from "./projectRoutes";
 import { stageRoutes } from "./stageRoutes";
+import { techPackRoutes } from "./techPackRoutes";
 
 export const routes = Router();
 
@@ -19,3 +21,5 @@ routes.use("/stages", stageRoutes);
 
 // SOP domain (ADR 0006/0007) - coexists with, does not replace, the above.
 routes.use("/projects", projectRoutes);
+routes.use("/tech-packs", techPackRoutes);
+routes.use("/attachments", attachmentRoutes);
