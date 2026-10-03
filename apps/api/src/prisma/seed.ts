@@ -1,21 +1,9 @@
 import "dotenv/config";
 import { prisma } from "../repositories/prismaClient";
 import { hashPassword, isArgon2Hash } from "../services/passwordService";
+import { stageDefinitionSeedData as stages } from "./stageDefinitionSeedData";
 
 const DEFAULT_SEED_PASSWORD = "kyvera-dev-password";
-
-// Placeholder durations — tune once real stage timing data exists.
-const stages = [
-  { sequenceOrder: 1, name: "Requirement", expectedDurationDays: 5 },
-  { sequenceOrder: 2, name: "Initial Design", expectedDurationDays: 7 },
-  { sequenceOrder: 3, name: "Engineering", expectedDurationDays: 14 },
-  { sequenceOrder: 4, name: "Review", expectedDurationDays: 3 },
-  { sequenceOrder: 5, name: "Prototype", expectedDurationDays: 10 },
-  { sequenceOrder: 6, name: "Testing", expectedDurationDays: 7 },
-  { sequenceOrder: 7, name: "Modification", expectedDurationDays: 5 },
-  { sequenceOrder: 8, name: "Final Review", expectedDurationDays: 3 },
-  { sequenceOrder: 9, name: "Approval", expectedDurationDays: 2 },
-];
 
 // No auth module yet (that's a separate build item), so there's no real
 // password hashing to seed either — these exist only so product CRUD has
