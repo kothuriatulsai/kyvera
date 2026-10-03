@@ -70,3 +70,15 @@ export function assertAuthConfig(): void {
   getAccessTokenTtlSeconds();
   getAllowedOrigins();
 }
+
+const DEFAULT_UPLOADS_DIR = "uploads";
+
+/**
+ * Where `LocalDiskStorage` (ADR 0008) writes attachment bytes. A relative
+ * value resolves against `apps/api/` (the process cwd in dev/CI/Docker), the
+ * same convention as `schema.prisma`'s path.
+ */
+export function getUploadsDir(): string {
+  const raw = process.env.UPLOADS_DIR;
+  return raw === undefined || raw.trim() === "" ? DEFAULT_UPLOADS_DIR : raw;
+}

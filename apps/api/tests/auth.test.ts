@@ -181,6 +181,20 @@ describe("authentication on protected routes", () => {
     ["POST", "/products/abc/transition"],
     ["GET", "/stages"],
     ["GET", "/auth/me"],
+    ["GET", "/projects"],
+    ["POST", "/projects"],
+    ["GET", "/projects/abc"],
+    ["GET", "/tech-packs"],
+    ["POST", "/tech-packs"],
+    ["GET", "/tech-packs/abc"],
+    ["POST", "/tech-packs/abc/versions"],
+    ["GET", "/tech-packs/abc/versions/1/remarks"],
+    ["POST", "/tech-packs/abc/versions/1/remarks"],
+    ["POST", "/tech-packs/abc/versions/1/confirm"],
+    ["POST", "/tech-packs/abc/versions/1/decision"],
+    ["GET", "/proto-requests"],
+    ["GET", "/proto-requests/abc"],
+    ["GET", "/attachments/abc/download"],
   ] as const)("requires a token for %s %s", async (method, path) => {
     const res = await request(app)[method.toLowerCase() as "get"](path);
     expect(res.status).toBe(401);

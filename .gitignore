@@ -19,6 +19,9 @@ npm-debug.log*
 # Prisma
 apps/api/src/prisma/generated/
 
+# Local attachment storage (ADR 0008) - dev-only, never committed.
+apps/api/uploads/
+
 # Editor / OS
 .vscode/*
 !.vscode/extensions.json

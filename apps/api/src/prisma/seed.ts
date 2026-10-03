@@ -1,21 +1,9 @@
 import "dotenv/config";
 import { prisma } from "../repositories/prismaClient";
 import { hashPassword, isArgon2Hash } from "../services/passwordService";
+import { stageDefinitionSeedData as stages } from "./stageDefinitionSeedData";
 
 const DEFAULT_SEED_PASSWORD = "kyvera-dev-password";
-
-// Placeholder durations — tune once real stage timing data exists.
-const stages = [
-  { sequenceOrder: 1, name: "Requirement", expectedDurationDays: 5 },
-  { sequenceOrder: 2, name: "Initial Design", expectedDurationDays: 7 },
-  { sequenceOrder: 3, name: "Engineering", expectedDurationDays: 14 },
-  { sequenceOrder: 4, name: "Review", expectedDurationDays: 3 },
-  { sequenceOrder: 5, name: "Prototype", expectedDurationDays: 10 },
-  { sequenceOrder: 6, name: "Testing", expectedDurationDays: 7 },
-  { sequenceOrder: 7, name: "Modification", expectedDurationDays: 5 },
-  { sequenceOrder: 8, name: "Final Review", expectedDurationDays: 3 },
-  { sequenceOrder: 9, name: "Approval", expectedDurationDays: 2 },
-];
 
 // No auth module yet (that's a separate build item), so there's no real
 // password hashing to seed either — these exist only so product CRUD has
@@ -25,6 +13,13 @@ const users = [
   { email: "engineer@kyvera.dev", name: "Eli Engineer", role: "ENGINEER" as const },
   { email: "finance@kyvera.dev", name: "Fran Finance", role: "FINANCE" as const },
   { email: "admin@kyvera.dev", name: "Alex Admin", role: "ADMIN" as const },
+
+  // SOP domain (ADR 0006/0007), one per new role.
+  { email: "pmo@kyvera.dev", name: "Priya PMO", role: "PMO" as const },
+  { email: "designer@kyvera.dev", name: "Deepa Designer", role: "PRODUCT_DESIGNER" as const },
+  { email: "engineering@kyvera.dev", name: "Emre Engineering", role: "ENGINEERING" as const },
+  { email: "management@kyvera.dev", name: "Mira Management", role: "MANAGEMENT" as const },
+  { email: "merchandiser@kyvera.dev", name: "Milo Merchandiser", role: "MERCHANDISER" as const },
 ];
 
 async function main() {

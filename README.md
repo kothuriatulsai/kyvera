@@ -306,3 +306,15 @@ npm run test
 ```
 
 These also run in CI on every pull request.
+
+**`npm run test` uses its own database** (`kyvera_test` by default, same
+Postgres server as `DATABASE_URL`, overridable via `TEST_DATABASE_URL`) and
+its own uploads directory (a temp directory, not `apps/api/uploads/`) -
+entirely separate from dev data. A one-time global setup creates that
+database if it doesn't exist, applies migrations to it, truncates every table
+and reseeds the workflow stage definitions before each run, so every test run
+starts from the same clean state and dev data is never read or written. It
+refuses to run at all if `TEST_DATABASE_URL` doesn't point at a database whose
+name ends in `_test`, so a misconfigured env can't truncate the wrong
+database. No separate setup step is needed beyond having Postgres reachable -
+`npm run test` provisions the test database itself.
