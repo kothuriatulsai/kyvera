@@ -1,5 +1,6 @@
 import { Router } from "express";
 import * as techPackController from "../controllers/techPackController";
+import * as techPackDecisionController from "../controllers/techPackDecisionController";
 import * as techPackReviewController from "../controllers/techPackReviewController";
 import { attachmentUpload } from "../middleware/attachmentUpload";
 import { requireRole } from "../middleware/requireRole";
@@ -46,4 +47,12 @@ techPackRoutes.post(
   "/:id/versions/:versionNumber/confirm",
   requireRole("ENGINEERING"),
   techPackReviewController.confirmVersion,
+);
+
+// Stage 3, Management half (ADR 0006 point 4). Management-only, no ADMIN
+// carve-out - ADR 0009.
+techPackRoutes.post(
+  "/:id/versions/:versionNumber/decision",
+  requireRole("MANAGEMENT"),
+  techPackDecisionController.decideTechPackVersion,
 );

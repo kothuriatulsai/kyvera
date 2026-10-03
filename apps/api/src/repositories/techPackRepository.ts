@@ -49,6 +49,26 @@ export function create(data: Prisma.TechPackCreateInput, db: Db = prisma) {
   return db.techPack.create({ data });
 }
 
+// Management's rejection path (SOP Stage 3). Void traceability lives on the
+// row itself (ADR 0006 point 3) even though the full decision record - who,
+// when, the rest of the notes - is also on the TechPackApproval row that
+// triggers this; the two aren't redundant, this copy is for "why was this
+// voided" as a direct column read.
+export function voidTechPack(
+  id: string,
+  data: { voidedById: string; voidReason: string },
+  db: Db = prisma,
+) {
+  return db.techPack.update({
+    where: { id },
+    data: {
+      voidedAt: new Date(),
+      voidedBy: { connect: { id: data.voidedById } },
+      voidReason: data.voidReason,
+    },
+  });
+}
+
 // Locks the row for the life of the enclosing transaction so a concurrent
 // version upload (or, once it exists, an approval) can't race past this read -
 // e.g. approve a version that stopped being the latest a moment earlier.
