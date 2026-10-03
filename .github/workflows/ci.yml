@@ -14,6 +14,10 @@ jobs:
       # truncate, seed - see apps/api/tests/globalSetup.ts), the same way a
       # local `npm test` does; nothing else in this job needs a database.
       TEST_DATABASE_URL: postgresql://kyvera:kyvera@localhost:5432/kyvera_test?schema=public
+      # Needed at install time too: `npm ci` runs `prisma generate` (postinstall),
+      # and prisma.config.ts requires DATABASE_URL to load. Points at the same
+      # throwaway test database; nothing in CI uses a dev database.
+      DATABASE_URL: postgresql://kyvera:kyvera@localhost:5432/kyvera_test?schema=public
       # Throwaway value: CI only needs *a* valid secret (32+ chars), and no
       # real one should ever live in the workflow file.
       JWT_SECRET: ci-only-jwt-secret-not-used-anywhere-else
