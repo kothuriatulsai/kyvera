@@ -8,7 +8,19 @@ export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
 export const APPROVAL_DECISIONS = ["APPROVED", "REJECTED"] as const;
 export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 
-export type UserRole = "ADMIN" | "MANAGER" | "ENGINEER" | "FINANCE";
+// Additive (ADR 0007 in the API): MANAGER/ENGINEER are the old module's roles,
+// kept as-is; the rest are the SOP domain's. Neither group is renamed or
+// removed for the other's sake.
+export type UserRole =
+  | "ADMIN"
+  | "MANAGER"
+  | "ENGINEER"
+  | "FINANCE"
+  | "PMO"
+  | "PRODUCT_DESIGNER"
+  | "ENGINEERING"
+  | "MANAGEMENT"
+  | "MERCHANDISER";
 
 /**
  * Who the viewer is *to a product* (ADR 0004), decided per product, not from
@@ -381,4 +393,40 @@ export interface AddProgressNoteResponse {
   stageId: string;
   note: string;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// SOP domain (ADR 0006/0007 in the API) — Project, Stage 1. Coexists with,
+// does not replace, the old module's types above. Built out incrementally,
+// screen by screen, alongside apps/web; more of this domain (TechPack,
+// ProtoRequest, ...) is added as those screens land.
+// ---------------------------------------------------------------------------
+
+export const PROJECT_PHASES = ["PROTO", "BULK"] as const;
+export type ProjectPhase = (typeof PROJECT_PHASES)[number];
+
+export const PROJECT_STATUSES = ["ACTIVE", "COMPLETED"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
+/** Shape of `GET /projects`, `GET /projects/:id`, and the response of `POST /projects`. */
+export interface Project {
+  id: string;
+  code: string;
+  name: string;
+  productName: string;
+  productCategory: string | null;
+  phase: ProjectPhase;
+  status: ProjectStatus;
+  protoCompletedAt: string | null;
+  completedAt: string | null;
+  createdById: string;
+  createdBy: UserSummary;
+  createdAt: string;
+}
+
+/** Body of `POST /projects`. PMO or ADMIN only. */
+export interface CreateProjectRequest {
+  name: string;
+  productName: string;
+  productCategory?: string;
 }

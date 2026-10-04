@@ -36,8 +36,85 @@ export const ownerUser: UserSummary = {
   createdAt: SEPT_1,
 }
 
+export const financeUser: UserSummary = {
+  id: 'u-finance',
+  name: 'Fran Finance',
+  email: 'finance@kyvera.dev',
+  role: 'FINANCE',
+  createdAt: SEPT_1,
+}
+
 export const adminSession: Session = { token: 'tok-admin', user: adminUser }
 export const engineerSession: Session = { token: 'tok-eng', user: engineerUser }
+export const managerSession: Session = { token: 'tok-owner', user: ownerUser }
+export const financeSession: Session = { token: 'tok-finance', user: financeUser }
+
+// ---------------------------------------------------------------------------
+// SOP domain roles (ADR 0006/0007 in the API) — one user/session per role,
+// alongside the old module's above (ADMIN/MANAGER/ENGINEER/FINANCE are
+// shared; MANAGER/ENGINEER themselves have no SOP-domain meaning).
+// ---------------------------------------------------------------------------
+
+export const pmoUser: UserSummary = {
+  id: 'u-pmo',
+  name: 'Priya PMO',
+  email: 'pmo@kyvera.dev',
+  role: 'PMO',
+  createdAt: SEPT_1,
+}
+
+export const productDesignerUser: UserSummary = {
+  id: 'u-designer',
+  name: 'Deepa Designer',
+  email: 'designer@kyvera.dev',
+  role: 'PRODUCT_DESIGNER',
+  createdAt: SEPT_1,
+}
+
+export const engineeringUser: UserSummary = {
+  id: 'u-engineering',
+  name: 'Emre Engineering',
+  email: 'engineering@kyvera.dev',
+  role: 'ENGINEERING',
+  createdAt: SEPT_1,
+}
+
+export const managementUser: UserSummary = {
+  id: 'u-management',
+  name: 'Mira Management',
+  email: 'management@kyvera.dev',
+  role: 'MANAGEMENT',
+  createdAt: SEPT_1,
+}
+
+export const merchandiserUser: UserSummary = {
+  id: 'u-merchandiser',
+  name: 'Milo Merchandiser',
+  email: 'merchandiser@kyvera.dev',
+  role: 'MERCHANDISER',
+  createdAt: SEPT_1,
+}
+
+export const pmoSession: Session = { token: 'tok-pmo', user: pmoUser }
+export const productDesignerSession: Session = { token: 'tok-designer', user: productDesignerUser }
+export const engineeringSession: Session = { token: 'tok-engineering', user: engineeringUser }
+export const managementSession: Session = { token: 'tok-management', user: managementUser }
+export const merchandiserSession: Session = { token: 'tok-merchandiser', user: merchandiserUser }
+
+/** Every role that must see no SOP-domain action anywhere: the legacy roles
+ * plus the SOP roles that aren't the one being tested. Screens import this
+ * and filter out whichever role(s) the action under test *does* allow. */
+export const ALL_SESSIONS: Session[] = [
+  adminSession,
+  managerSession,
+  engineerSession,
+  financeSession,
+  pmoSession,
+  productDesignerSession,
+  engineeringSession,
+  managementSession,
+  merchandiserSession,
+]
 
 /** The whole workflow. An assignee must never see any name here but their own. */
 export const ALL_STAGE_NAMES = [
