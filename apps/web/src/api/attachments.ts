@@ -11,14 +11,14 @@ const enc = encodeURIComponent
 export async function downloadAttachment(id: string, filename: string): Promise<void> {
   const blob = await apiGetBlob(`/attachments/${enc(id)}/download`)
   const url = URL.createObjectURL(blob)
-  try {
-    const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-  } finally {
-    URL.revokeObjectURL(url)
-  }
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // The browser reads the blob asynchronously after the click, so revoking
+  // the URL immediately can race it still reading from it. A short deferred
+  // revoke avoids pulling the URL out from under an in-progress download.
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
