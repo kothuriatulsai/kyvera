@@ -13,7 +13,13 @@ COPY package.json package-lock.json* ./
 COPY apps/api apps/api
 COPY packages/shared-types packages/shared-types
 
-RUN npm install
+# `.env` is excluded from the build context (.dockerignore) - a real one,
+# with real secrets, must never end up baked into an image layer. `prisma
+# generate` (apps/api's postinstall) still needs *a* DATABASE_URL to load
+# prisma.config.ts, though - it only reads the schema, it doesn't connect -
+# so this placeholder is scoped to just this one instruction, never the image
+# itself; the real value comes from docker-compose.yml at container run time.
+RUN DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder?schema=public" npm install
 
 WORKDIR /app/apps/api
 

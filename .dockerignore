@@ -1,0 +1,19 @@
+# Dependencies - reinstalled inside the image; a host node_modules copied in
+# verbatim would also be the wrong platform/arch for a container.
+**/node_modules
+
+# Build output - each image builds its own.
+**/dist
+
+# Env files - never bake real secrets (or anyone's local overrides) into an image.
+**/.env
+
+# Local attachment storage (ADR 0008) - dev-only, never shipped in an image.
+apps/api/uploads
+
+# Git metadata - not needed at runtime, and can be large.
+.git
+
+# Private working documents - never shipped anywhere, image included.
+CLAUDE.md
+nitisi-ops-sop-v1.md
