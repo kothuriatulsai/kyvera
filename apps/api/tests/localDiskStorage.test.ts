@@ -6,7 +6,7 @@ import {
   ALLOWED_ATTACHMENT_EXTENSIONS,
   isAllowedAttachmentExtension,
   MAX_ATTACHMENT_SIZE_BYTES,
-} from "../src/services/storage/AttachmentStorage";
+} from "@kyvera/shared-types";
 import { LocalDiskStorage } from "../src/services/storage/LocalDiskStorage";
 
 describe("LocalDiskStorage", () => {

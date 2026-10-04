@@ -396,10 +396,12 @@ export interface AddProgressNoteResponse {
 }
 
 // ---------------------------------------------------------------------------
-// SOP domain (ADR 0006/0007 in the API) — Project, Stage 1. Coexists with,
-// does not replace, the old module's types above. Built out incrementally,
-// screen by screen, alongside apps/web; more of this domain (TechPack,
-// ProtoRequest, ...) is added as those screens land.
+// SOP domain (ADR 0006/0007 in the API) — Project (Stage 1), TechPack list
+// shape and ProtoRequest (Stages 2-3). Coexists with, does not replace, the
+// old module's types above. Built out incrementally, screen by screen,
+// alongside apps/web; TechPack's full detail shape (versions, attachments,
+// remarks, confirmation, approval) is added once the tech pack detail screen
+// needs it.
 // ---------------------------------------------------------------------------
 
 export const PROJECT_PHASES = ["PROTO", "BULK"] as const;
@@ -429,4 +431,66 @@ export interface CreateProjectRequest {
   name: string;
   productName: string;
   productCategory?: string;
+}
+
+/** Shape of each entry in `GET /tech-packs` (narrower than `GET /tech-packs/:id` —
+ * no `versions`, `supersedes`/`supersededBy` or `voidedBy`). */
+export interface TechPackListItem {
+  id: string;
+  code: string;
+  projectId: string;
+  project: { id: string; code: string; name: string };
+  phase: ProjectPhase;
+  createdById: string;
+  createdBy: UserSummary;
+  createdAt: string;
+  voidedAt: string | null;
+  voidedById: string | null;
+  voidReason: string | null;
+  /** The TechPack this one replaced, if Management rejected it. */
+  supersedesId: string | null;
+}
+
+/** Shape of `GET /proto-requests`, `GET /proto-requests/:id`, and the
+ * `protoRequest` field of `POST .../decision`'s response when approved. */
+export interface ProtoRequest {
+  id: string;
+  code: string;
+  projectId: string;
+  project: { id: string; code: string; name: string };
+  techPackVersionId: string;
+  techPackVersion: {
+    id: string;
+    versionNumber: number;
+    techPack: { id: string; code: string };
+  };
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Attachment upload policy (ADR 0008 in the API) — shared so the web upload
+// form can reject a disallowed file *before* sending it, with the exact same
+// rule the API enforces regardless. The API's own copy of these (previously
+// in apps/api/src/services/storage/AttachmentStorage.ts) now just re-exports
+// them from here, so there is one definition, not two that could drift.
+// ---------------------------------------------------------------------------
+
+export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+
+export const ALLOWED_ATTACHMENT_EXTENSIONS = [
+  "pdf",
+  "doc",
+  "docx",
+  "dwg",
+  "dxf",
+  "step",
+  "stp",
+  "png",
+  "jpg",
+  "jpeg",
+] as const;
+
+export function isAllowedAttachmentExtension(originalName: string): boolean {
+  const ext = originalName.split(".").pop()?.toLowerCase();
+  return ext !== undefined && (ALLOWED_ATTACHMENT_EXTENSIONS as readonly string[]).includes(ext);
 }

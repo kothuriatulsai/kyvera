@@ -20,26 +20,12 @@ export interface AttachmentStorage {
   delete(storageKey: string): Promise<void>;
 }
 
-// Upload policy (ADR 0008 follow-up). Enforced by the upload endpoint before
-// calling `save()`, not inside a storage implementation itself - a future
-// object-storage implementation shouldn't have to duplicate this policy, and
-// a storage implementation has no business deciding what's an allowed file.
-export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
-
-export const ALLOWED_ATTACHMENT_EXTENSIONS = [
-  "pdf",
-  "doc",
-  "docx",
-  "dwg",
-  "dxf",
-  "step",
-  "stp",
-  "png",
-  "jpg",
-  "jpeg",
-] as const;
-
-export function isAllowedAttachmentExtension(originalName: string): boolean {
-  const ext = originalName.split(".").pop()?.toLowerCase();
-  return ext !== undefined && (ALLOWED_ATTACHMENT_EXTENSIONS as readonly string[]).includes(ext);
-}
+// Upload policy (ADR 0008 follow-up) now lives in @kyvera/shared-types, so the
+// web upload form can enforce the exact same rule client-side - re-exported
+// here so every existing caller in this package keeps importing from this
+// module (or from ./index, which re-exports this) unchanged.
+export {
+  ALLOWED_ATTACHMENT_EXTENSIONS,
+  MAX_ATTACHMENT_SIZE_BYTES,
+  isAllowedAttachmentExtension,
+} from "@kyvera/shared-types";
