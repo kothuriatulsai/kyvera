@@ -106,7 +106,9 @@ export function ProjectDetailPage() {
                 <tbody>
                   {protoRequests.map((protoRequest) => (
                     <tr key={protoRequest.id}>
-                      <td>{protoRequest.code}</td>
+                      <td>
+                      <Link to={`/proto-requests/${protoRequest.id}`}>{protoRequest.code}</Link>
+                    </td>
                       <td>
                         <Link to={`/tech-packs/${protoRequest.techPackVersion.techPack.id}`}>
                           {protoRequest.techPackVersion.techPack.code}
