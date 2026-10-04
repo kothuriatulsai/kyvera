@@ -433,6 +433,117 @@ export interface CreateProjectRequest {
   productCategory?: string;
 }
 
+/** File metadata (ADR 0008) - bytes are reachable only through the
+ * authenticated `GET /attachments/:id/download`, never a URL on this object. */
+export interface Attachment {
+  id: string;
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedById: string;
+  uploadedBy: UserSummary;
+  uploadedAt: string;
+  techPackVersionId: string | null;
+}
+
+/** One entry in a TechPackVersion's review thread (Stage 3, Engineering half). */
+export interface TechPackRemark {
+  id: string;
+  techPackVersionId: string;
+  authorId: string;
+  author: UserSummary;
+  body: string;
+  createdAt: string;
+}
+
+/** Body of `POST /tech-packs/:id/versions/:versionNumber/remarks`. ENGINEERING,
+ * PRODUCT_DESIGNER or ADMIN; response is the created `TechPackRemark`. */
+export interface AddTechPackRemarkRequest {
+  body: string;
+}
+
+/** Engineering's sign-off on one exact TechPackVersion (Stage 3). Also the
+ * response shape of `POST .../confirm`. */
+export interface TechPackConfirmation {
+  id: string;
+  techPackVersionId: string;
+  confirmedById: string;
+  confirmedBy: UserSummary;
+  confirmedAt: string;
+}
+
+/** Management's decision on one exact TechPackVersion (Stage 3). */
+export interface TechPackApproval {
+  id: string;
+  techPackVersionId: string;
+  decision: ApprovalDecision;
+  decidedById: string;
+  decidedBy: UserSummary;
+  decidedAt: string;
+  notes: string | null;
+}
+
+/** Body of `POST /tech-packs/:id/versions/:versionNumber/decision`. MANAGEMENT
+ * only; `notes` is required when rejecting. */
+export interface DecideTechPackVersionRequest {
+  decision: ApprovalDecision;
+  notes?: string;
+}
+
+/** One revision of a TechPack, always nested under `TechPackDetail.versions`
+ * (there is no standalone "get one version" endpoint). */
+export interface TechPackVersion {
+  id: string;
+  techPackId: string;
+  versionNumber: number;
+  notes: string | null;
+  uploadedById: string;
+  uploadedBy: UserSummary;
+  uploadedAt: string;
+  /** Oldest first. */
+  attachments: Attachment[];
+  /** Oldest first. */
+  remarks: TechPackRemark[];
+  confirmation: TechPackConfirmation | null;
+  approval: TechPackApproval | null;
+}
+
+/** Shape of `GET /tech-packs/:id/versions` is nested here, newest first (there
+ * is no separate endpoint for it) - see `TechPackListItem` for the narrower
+ * `GET /tech-packs` list shape. Also the response of `POST /tech-packs`,
+ * `POST .../versions`, and the `techPack` field of `POST .../decision`'s
+ * response. */
+export interface TechPackDetail {
+  id: string;
+  code: string;
+  projectId: string;
+  project: { id: string; code: string; name: string; phase: ProjectPhase };
+  phase: ProjectPhase;
+  createdById: string;
+  createdBy: UserSummary;
+  createdAt: string;
+  voidedAt: string | null;
+  voidedById: string | null;
+  voidedBy: UserSummary | null;
+  voidReason: string | null;
+  supersedesId: string | null;
+  supersedes: { id: string; code: string } | null;
+  /** The TechPack that replaced this one, if Management rejected it. */
+  supersededBy: { id: string; code: string } | null;
+  /** Newest first. */
+  versions: TechPackVersion[];
+}
+
+/** Response of `POST /tech-packs/:id/versions/:versionNumber/decision`. On
+ * `REJECTED`, `techPack` is the *new* successor TechPack (zero versions of
+ * its own yet), not the one just decided on, and `protoRequest` is null. */
+export interface DecideTechPackVersionResponse {
+  decision: ApprovalDecision;
+  techPack: TechPackDetail;
+  protoRequest: ProtoRequest | null;
+}
+
 /** Shape of each entry in `GET /tech-packs` (narrower than `GET /tech-packs/:id` —
  * no `versions`, `supersedes`/`supersededBy` or `voidedBy`). */
 export interface TechPackListItem {

@@ -1,18 +1,23 @@
 import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import type { TechPackDetail } from '@kyvera/shared-types'
 import { ApiError } from '../api/client'
-import { createTechPack } from '../api/techPacks'
+import { uploadTechPackVersion } from '../api/techPacks'
 import { fileListError } from '../lib/attachmentValidation'
 
-interface CreateTechPackFormProps {
-  projectId: string
-  /** Called with the created TechPack. The page decides what to do next. */
-  onCreated: (techPack: TechPackDetail) => void
+interface UploadVersionControlProps {
+  techPackId: string
+  nextVersionNumber: number
+  /** Reload the page's data after a successful upload (or a failed one that
+   * might mean something changed underneath - a concurrent approval, say). */
+  onChanged: () => Promise<void>
 }
 
-/** Stage 2: PRODUCT_DESIGNER or ADMIN uploads a Tech Pack. Shown only when
- * allowed - see lib/sopPermissions.ts's canCreateTechPack. */
-export function CreateTechPackForm({ projectId, onCreated }: CreateTechPackFormProps) {
+/**
+ * PRODUCT_DESIGNER/ADMIN uploads a new version. The same control for "upload
+ * v1" (a fresh TechPack, or a rejection's successor, which starts with zero
+ * versions) and "upload v4" on top of existing ones - `nextVersionNumber` is
+ * computed by the caller either way.
+ */
+export function UploadVersionControl({ techPackId, nextVersionNumber, onChanged }: UploadVersionControlProps) {
   const [files, setFiles] = useState<File[]>([])
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -37,21 +42,25 @@ export function CreateTechPackForm({ projectId, onCreated }: CreateTechPackFormP
     setError(null)
     try {
       const trimmedNotes = notes.trim()
-      const techPack = await createTechPack({
-        projectId,
+      await uploadTechPackVersion(techPackId, {
         files,
         ...(trimmedNotes !== '' ? { notes: trimmedNotes } : {}),
       })
-      onCreated(techPack)
+      setFiles([])
+      setNotes('')
+      if (inputRef.current) inputRef.current.value = ''
+      await onChanged()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.')
+      await onChanged()
+    } finally {
       setSubmitting(false)
     }
   }
 
   return (
     <form className="control" onSubmit={handleSubmit}>
-      <h3>Create tech pack</h3>
+      <h3>Upload version</h3>
       <label>
         Files
         <input ref={inputRef} type="file" multiple onChange={handleFilesChosen} />
@@ -73,7 +82,7 @@ export function CreateTechPackForm({ projectId, onCreated }: CreateTechPackFormP
         </p>
       )}
       <button type="submit" disabled={!canSubmit}>
-        {submitting ? 'Uploading…' : 'Create tech pack'}
+        {submitting ? 'Uploading…' : `Upload v${nextVersionNumber}`}
       </button>
     </form>
   )

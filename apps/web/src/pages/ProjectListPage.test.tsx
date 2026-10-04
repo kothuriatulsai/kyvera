@@ -25,8 +25,10 @@ const PROTO_PROJECT: Project = {
 // let that navigation actually land.
 const detailRoutes = [
   route('GET', '/projects/pr-1', { body: PROTO_PROJECT }),
-  route('GET', /^\/tech-packs/, { body: [] }),
-  route('GET', /^\/proto-requests/, { body: [] }),
+  // Anchored to end: `/tech-packs/:id` is a real route too (Screen 3), and
+  // must not be intercepted by the *list* endpoint's mock.
+  route('GET', /^\/tech-packs$/, { body: [] }),
+  route('GET', /^\/proto-requests$/, { body: [] }),
 ]
 
 describe('GET /projects', () => {

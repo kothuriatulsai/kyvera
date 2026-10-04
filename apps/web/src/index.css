@@ -107,6 +107,22 @@ td.delay {
   color: var(--bad);
 }
 
+.badge-latest {
+  color: var(--muted);
+}
+
+.badge-confirmed {
+  color: var(--ok);
+}
+
+.badge-approved {
+  color: var(--ok);
+}
+
+.badge-rejected {
+  color: var(--bad);
+}
+
 .detail-header {
   display: flex;
   align-items: center;
@@ -137,6 +153,17 @@ td.delay {
 
 .versions li {
   margin-bottom: 1rem;
+}
+
+.remarks {
+  margin-top: 0.75rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--border);
+}
+
+.remarks h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
 }
 
 /* --- auth --- */

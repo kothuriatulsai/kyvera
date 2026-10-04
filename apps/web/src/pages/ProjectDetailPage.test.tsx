@@ -1,4 +1,4 @@
-import type { Project, ProtoRequest, TechPackListItem } from '@kyvera/shared-types'
+import type { Project, ProtoRequest, TechPackDetail, TechPackListItem } from '@kyvera/shared-types'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import { ALL_SESSIONS, adminSession, productDesignerSession, productDesignerUser } from '../test/fixtures'
@@ -40,6 +40,30 @@ function techPack(overrides: Partial<TechPackListItem> = {}): TechPackListItem {
   }
 }
 
+/** Minimal shape for the destination of "create, then navigate to it" - the
+ * real detail screen's own content is covered by TechPackDetailPage.test.tsx. */
+function techPackDetail(overrides: Partial<TechPackDetail> = {}): TechPackDetail {
+  return {
+    id: 'tp1',
+    code: 'TP-000001',
+    projectId: 'p1',
+    project: { id: 'p1', code: 'PRJ-000001', name: 'Solar Lantern Proto', phase: 'PROTO' },
+    phase: 'PROTO',
+    createdById: productDesignerUser.id,
+    createdBy: productDesignerUser,
+    createdAt: '2026-09-02T00:00:00.000Z',
+    voidedAt: null,
+    voidedById: null,
+    voidedBy: null,
+    voidReason: null,
+    supersedesId: null,
+    supersedes: null,
+    supersededBy: null,
+    versions: [],
+    ...overrides,
+  }
+}
+
 function protoRequest(overrides: Partial<ProtoRequest> = {}): ProtoRequest {
   return {
     id: 'proto1',
@@ -61,8 +85,10 @@ function stubDetail(opts: {
   const { techPacks = [], protoRequests = [], project = protoProject } = opts
   return stubApi([
     route('GET', PROJECT, { body: project }),
-    route('GET', /^\/tech-packs/, { body: techPacks }),
-    route('GET', /^\/proto-requests/, { body: protoRequests }),
+    // Anchored to end: `/tech-packs/:id` (the detail screen) is now a real
+    // route too, and must not be intercepted by the *list* endpoint's mock.
+    route('GET', /^\/tech-packs$/, { body: techPacks }),
+    route('GET', /^\/proto-requests$/, { body: protoRequests }),
   ])
 }
 
@@ -213,9 +239,10 @@ describe('Create tech pack form', () => {
   it('uploads the chosen files and trimmed notes as multipart, and navigates to the new tech pack', async () => {
     const api = stubApi([
       route('GET', PROJECT, { body: protoProject }),
-      route('GET', /^\/tech-packs/, { body: [] }),
-      route('GET', /^\/proto-requests/, { body: [] }),
+      route('GET', /^\/tech-packs$/, { body: [] }),
+      route('GET', /^\/proto-requests$/, { body: [] }),
       route('POST', '/tech-packs', { status: 201, body: techPack() }),
+      route('GET', '/tech-packs/tp1', { body: techPackDetail() }),
     ])
     renderApp(PROJECT, { session: productDesignerSession })
     await screen.findByText('No tech packs yet.')
@@ -226,9 +253,9 @@ describe('Create tech pack form', () => {
     fireEvent.change(screen.getByLabelText(/Notes/), { target: { value: '  first cut  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create tech pack' }))
 
-    // /tech-packs/tp1 isn't a real screen yet; reaching the catch-all rather
-    // than staying here proves the navigation fired.
-    await screen.findByText('Page not found.')
+    // /tech-packs/tp1 is a real screen now (Screen 3) - landing on its own
+    // heading, not just the catch-all, proves the navigation actually fired.
+    await screen.findByRole('heading', { name: 'TP-000001' })
     const upload = api.calls.find((c) => c.path === '/tech-packs' && c.method === 'POST')
     expect(upload?.body).toEqual({
       projectId: 'p1',
@@ -240,9 +267,10 @@ describe('Create tech pack form', () => {
   it('omits notes entirely when left blank', async () => {
     const api = stubApi([
       route('GET', PROJECT, { body: protoProject }),
-      route('GET', /^\/tech-packs/, { body: [] }),
-      route('GET', /^\/proto-requests/, { body: [] }),
+      route('GET', /^\/tech-packs$/, { body: [] }),
+      route('GET', /^\/proto-requests$/, { body: [] }),
       route('POST', '/tech-packs', { status: 201, body: techPack() }),
+      route('GET', '/tech-packs/tp1', { body: techPackDetail() }),
     ])
     renderApp(PROJECT, { session: productDesignerSession })
     await screen.findByText('No tech packs yet.')
@@ -250,7 +278,7 @@ describe('Create tech pack form', () => {
     fireEvent.change(screen.getByLabelText('Files'), { target: { files: [fileOf('spec.pdf', 1024)] } })
     fireEvent.click(screen.getByRole('button', { name: 'Create tech pack' }))
 
-    await screen.findByText('Page not found.')
+    await screen.findByRole('heading', { name: 'TP-000001' })
     const body = api.calls.find((c) => c.path === '/tech-packs' && c.method === 'POST')?.body
     expect(body).not.toHaveProperty('notes')
   })
@@ -258,8 +286,8 @@ describe('Create tech pack form', () => {
   it('shows the API error and does not navigate away when the server refuses', async () => {
     stubApi([
       route('GET', PROJECT, { body: protoProject }),
-      route('GET', /^\/tech-packs/, { body: [] }),
-      route('GET', /^\/proto-requests/, { body: [] }),
+      route('GET', /^\/tech-packs$/, { body: [] }),
+      route('GET', /^\/proto-requests$/, { body: [] }),
       route('POST', '/tech-packs', {
         status: 409,
         body: { error: 'Project p1 already has an active Tech Pack' },
@@ -278,9 +306,10 @@ describe('Create tech pack form', () => {
   it('disables the submit button and shows a busy label while the request is in flight', async () => {
     stubApi([
       route('GET', PROJECT, { body: protoProject }),
-      route('GET', /^\/tech-packs/, { body: [] }),
-      route('GET', /^\/proto-requests/, { body: [] }),
+      route('GET', /^\/tech-packs$/, { body: [] }),
+      route('GET', /^\/proto-requests$/, { body: [] }),
       route('POST', '/tech-packs', { status: 201, body: techPack() }),
+      route('GET', '/tech-packs/tp1', { body: techPackDetail() }),
     ])
     renderApp(PROJECT, { session: productDesignerSession })
     await screen.findByText('No tech packs yet.')
@@ -291,6 +320,6 @@ describe('Create tech pack form', () => {
     const busy = screen.getByRole('button', { name: 'Uploading…' }) as HTMLButtonElement
     expect(busy.disabled).toBe(true)
 
-    await screen.findByText('Page not found.') // let it settle before the next test
+    await screen.findByRole('heading', { name: 'TP-000001' }) // let it settle before the next test
   })
 })

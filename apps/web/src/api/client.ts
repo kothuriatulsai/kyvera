@@ -41,12 +41,12 @@ interface RawRequestOptions {
 
 /**
  * The fetch/error-handling plumbing shared by every request shape (JSON body,
- * multipart form, eventually a blob response): auth header, the "API is
- * unreachable" case, the API's `{ error }` body on a non-2xx response, and
- * ending the session on a 401. `apiRequest` and `apiPostMultipart` only differ
- * in how they build `headers`/`body`.
+ * multipart form, blob response): auth header, the "API is unreachable" case,
+ * the API's `{ error }` body on a non-2xx response, and ending the session on
+ * a 401. Returns the raw, successful `Response` - callers decide how to read
+ * its body (`rawRequest` below reads JSON; `apiGetBlob` reads a `Blob`).
  */
-async function rawRequest<T>(path: string, options: RawRequestOptions): Promise<T> {
+async function rawFetch(path: string, options: RawRequestOptions): Promise<Response> {
   const headers = { ...options.headers }
   if (options.authenticated && accessToken) headers.Authorization = `Bearer ${accessToken}`
 
@@ -71,6 +71,11 @@ async function rawRequest<T>(path: string, options: RawRequestOptions): Promise<
     throw new ApiError(res.status, errorBody?.error ?? `Request failed with status ${res.status}`)
   }
 
+  return res
+}
+
+async function rawRequest<T>(path: string, options: RawRequestOptions): Promise<T> {
+  const res = await rawFetch(path, options)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
 }
@@ -110,3 +115,9 @@ export const apiPost = <T>(path: string, body: unknown = {}) =>
  */
 export const apiPostMultipart = <T>(path: string, body: FormData) =>
   rawRequest<T>(path, { method: 'POST', headers: {}, body, authenticated: true })
+
+/** GET a binary response (a file download) as a `Blob`, instead of JSON. */
+export const apiGetBlob = async (path: string): Promise<Blob> => {
+  const res = await rawFetch(path, { method: 'GET', headers: {}, authenticated: true })
+  return res.blob()
+}
