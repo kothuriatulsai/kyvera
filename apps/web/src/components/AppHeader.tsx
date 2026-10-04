@@ -15,6 +15,7 @@ export function AppHeader() {
             </NavLink>
             <NavLink to="/delayed">Delayed</NavLink>
             <NavLink to="/projects">Projects</NavLink>
+            <NavLink to="/proto-requests">Proto Requests</NavLink>
           </nav>
           <div className="account">
             <span>

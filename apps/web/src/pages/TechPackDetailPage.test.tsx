@@ -517,7 +517,8 @@ describe('Decision control', () => {
     fireEvent.click(screen.getByRole('radio', { name: 'Approved' }))
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
 
-    await screen.findByText(/View PR-000001 in Proto Requests/)
+    const link = await screen.findByRole('link', { name: 'View PR-000001' })
+    expect(link.getAttribute('href')).toBe('/proto-requests/pr1')
     // The decision form itself is gone now (the reload shows it's approved),
     // but the outcome link survives - it lives in the parent, not the form.
     expect(screen.queryByRole('heading', { name: 'Decision' })).toBeNull()

@@ -59,7 +59,10 @@ export function TechPackActions({ techPack, onChanged }: TechPackActionsProps) {
           {lastDecision.decision === 'APPROVED' ? (
             <p>
               Approved.{' '}
-              <Link to="/proto-requests">View {lastDecision.protoRequest?.code} in Proto Requests</Link>.
+              <Link to={`/proto-requests/${lastDecision.protoRequest?.id}`}>
+                View {lastDecision.protoRequest?.code}
+              </Link>
+              .
             </p>
           ) : (
             <p>

@@ -7,6 +7,8 @@ import { ProductDetailPage } from './pages/ProductDetailPage'
 import { ProductListPage } from './pages/ProductListPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { ProjectListPage } from './pages/ProjectListPage'
+import { ProtoRequestDetailPage } from './pages/ProtoRequestDetailPage'
+import { ProtoRequestListPage } from './pages/ProtoRequestListPage'
 import { TechPackDetailPage } from './pages/TechPackDetailPage'
 
 function App() {
@@ -25,6 +27,8 @@ function App() {
             <Route path="/projects" element={<ProjectListPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/tech-packs/:id" element={<TechPackDetailPage />} />
+            <Route path="/proto-requests" element={<ProtoRequestListPage />} />
+            <Route path="/proto-requests/:id" element={<ProtoRequestDetailPage />} />
             <Route path="*" element={<p className="muted">Page not found.</p>} />
           </Route>
         </Routes>
