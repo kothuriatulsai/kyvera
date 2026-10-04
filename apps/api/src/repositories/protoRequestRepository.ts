@@ -13,8 +13,8 @@ const include = {
   },
 } satisfies Prisma.ProtoRequestInclude;
 
-export function findMany(db: Db = prisma) {
-  return db.protoRequest.findMany({ include, orderBy: { createdAt: "desc" } });
+export function findMany(where: Prisma.ProtoRequestWhereInput = {}, db: Db = prisma) {
+  return db.protoRequest.findMany({ where, include, orderBy: { createdAt: "desc" } });
 }
 
 export function findById(id: string, db: Db = prisma) {

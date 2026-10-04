@@ -2,8 +2,9 @@ import type { Request, Response } from "express";
 import * as protoRequestService from "../services/protoRequestService";
 import { asyncHandler } from "./asyncHandler";
 
-export const listProtoRequests = asyncHandler(async (_req: Request, res: Response) => {
-  res.json(await protoRequestService.listProtoRequests());
+export const listProtoRequests = asyncHandler(async (req: Request, res: Response) => {
+  const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
+  res.json(await protoRequestService.listProtoRequests(projectId));
 });
 
 export const getProtoRequest = asyncHandler(async (req: Request, res: Response) => {
