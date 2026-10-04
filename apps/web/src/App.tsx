@@ -5,6 +5,7 @@ import { DelayedPage } from './pages/DelayedPage'
 import { LoginPage } from './pages/LoginPage'
 import { ProductDetailPage } from './pages/ProductDetailPage'
 import { ProductListPage } from './pages/ProductListPage'
+import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { ProjectListPage } from './pages/ProjectListPage'
 
 function App() {
@@ -21,6 +22,7 @@ function App() {
             <Route path="/delayed" element={<DelayedPage />} />
             <Route path="/products/:id" element={<ProductDetailPage />} />
             <Route path="/projects" element={<ProjectListPage />} />
+            <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="*" element={<p className="muted">Page not found.</p>} />
           </Route>
         </Routes>

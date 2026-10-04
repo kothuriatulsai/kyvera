@@ -20,6 +20,15 @@ const PROTO_PROJECT: Project = {
   createdAt: '2026-09-01T00:00:00.000Z',
 }
 
+// The new project's own detail page, reached by navigating after a create -
+// its own screen is covered by ProjectDetailPage.test.tsx; these routes just
+// let that navigation actually land.
+const detailRoutes = [
+  route('GET', '/projects/pr-1', { body: PROTO_PROJECT }),
+  route('GET', /^\/tech-packs/, { body: [] }),
+  route('GET', /^\/proto-requests/, { body: [] }),
+]
+
 describe('GET /projects', () => {
   it('lists projects with code, name, product, phase and status', async () => {
     stubApi([route('GET', '/projects', { body: [PROTO_PROJECT] })])
@@ -87,10 +96,11 @@ describe('New project form', () => {
     expect(submit.disabled).toBe(false)
   })
 
-  it('creates the project with the trimmed fields and navigates to it', async () => {
+  it('creates the project with the trimmed fields and navigates to its detail page', async () => {
     const api = stubApi([
       route('GET', '/projects', { body: [] }),
       route('POST', '/projects', { status: 201, body: PROTO_PROJECT }),
+      ...detailRoutes,
     ])
     renderApp('/projects', { session: pmoSession })
     await screen.findByText('No projects yet.')
@@ -99,9 +109,8 @@ describe('New project form', () => {
     fireEvent.change(screen.getByLabelText('Product'), { target: { value: '  Solar Lantern  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
 
-    // /projects/pr-1 isn't a real screen yet (that's next), but reaching the
-    // catch-all rather than staying on /projects proves the navigation fired.
-    await screen.findByText('Page not found.')
+    await screen.findByRole('heading', { name: 'Solar Lantern Proto' })
+    expect(screen.getByText('PRJ-000001')).toBeTruthy()
     expect(api.calls.find((c) => c.path === '/projects' && c.method === 'POST')?.body).toEqual({
       name: 'Solar Lantern Proto',
       productName: 'Solar Lantern',
@@ -112,6 +121,7 @@ describe('New project form', () => {
     const api = stubApi([
       route('GET', '/projects', { body: [] }),
       route('POST', '/projects', { status: 201, body: PROTO_PROJECT }),
+      ...detailRoutes,
     ])
     renderApp('/projects', { session: pmoSession })
     await screen.findByText('No projects yet.')
@@ -120,7 +130,7 @@ describe('New project form', () => {
     fireEvent.change(screen.getByLabelText('Product'), { target: { value: 'Product' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
 
-    await screen.findByText('Page not found.')
+    await screen.findByRole('heading', { name: 'Solar Lantern Proto' })
     const body = api.calls.find((c) => c.path === '/projects' && c.method === 'POST')?.body
     expect(body).not.toHaveProperty('productCategory')
   })
@@ -146,6 +156,7 @@ describe('New project form', () => {
     stubApi([
       route('GET', '/projects', { body: [] }),
       route('POST', '/projects', { status: 201, body: PROTO_PROJECT }),
+      ...detailRoutes,
     ])
     renderApp('/projects', { session: pmoSession })
     await screen.findByText('No projects yet.')
@@ -160,6 +171,6 @@ describe('New project form', () => {
     const busy = screen.getByRole('button', { name: 'Creating…' }) as HTMLButtonElement
     expect(busy.disabled).toBe(true)
 
-    await screen.findByText('Page not found.') // let it settle before the next test
+    await screen.findByRole('heading', { name: 'Solar Lantern Proto' }) // let it settle before the next test
   })
 })

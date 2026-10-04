@@ -28,6 +28,26 @@ export function route(method: string, path: string | RegExp, reply: MockResult):
 }
 
 /**
+ * A `FormData` body (file uploads) as a plain object for assertions: repeated
+ * keys (several files under the same field name) become an array, and each
+ * `File` becomes `{ name, size, type }` rather than the `File` instance
+ * itself, which doesn't compare usefully with `toEqual`.
+ */
+function formDataToObject(form: FormData): Record<string, unknown> {
+  const result: Record<string, unknown> = {}
+  for (const [key, value] of form.entries()) {
+    const entry = value instanceof File ? { name: value.name, size: value.size, type: value.type } : value
+    if (key in result) {
+      const existing = result[key]
+      result[key] = Array.isArray(existing) ? [...existing, entry] : [existing, entry]
+    } else {
+      result[key] = entry
+    }
+  }
+  return result
+}
+
+/**
  * Replaces `fetch` with a stub that answers from `routes`, records every request,
  * and 404s anything not listed. Recording is the point: several tests assert what
  * the frontend did *not* ask for.
@@ -42,7 +62,12 @@ export function stubApi(routes: MockRoute[]) {
       method: init?.method ?? 'GET',
       path: url.pathname,
       authorization: headers.get('Authorization'),
-      body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined,
+      body:
+        typeof init?.body === 'string'
+          ? JSON.parse(init.body)
+          : init?.body instanceof FormData
+            ? formDataToObject(init.body)
+            : undefined,
     }
     calls.push(request)
 
