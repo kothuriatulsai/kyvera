@@ -1,0 +1,12 @@
+{
+  "name": "e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Playwright smoke tests - a real browser against the built web app and the compiled API",
+  "scripts": {
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

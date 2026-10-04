@@ -5,7 +5,8 @@
   "description": "Kyvera — business operations platform",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "e2e"
   ],
   "scripts": {
     "lint": "npm run lint --workspaces --if-present",
