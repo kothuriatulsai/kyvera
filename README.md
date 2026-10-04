@@ -297,6 +297,22 @@ npm run dev --workspace apps/web
 `docker compose up` also builds and runs `api`/`web` themselves, if you'd
 rather run everything in containers.
 
+**Editing `packages/shared-types`?** `apps/api` and `apps/web` both resolve it
+through its compiled `dist/` output (its `package.json` `main`/`types`), not
+its TypeScript source directly - a plain `tsc` build, not Vite/tsx/vitest's
+on-the-fly transform, since the compiled API is run with plain `node`, which
+refuses to transform a `.ts` file found under `node_modules`. A change to
+`packages/shared-types/src` is invisible to the other two until it's rebuilt:
+
+```bash
+# One-off, after an edit
+npm run build --workspace packages/shared-types
+
+# Or leave this running in its own terminal instead, alongside the two `dev`
+# commands above, to rebuild on every save
+npm run dev --workspace packages/shared-types
+```
+
 ### Quality checks
 
 ```bash

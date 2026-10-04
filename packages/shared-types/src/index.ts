@@ -8,7 +8,19 @@ export type ProductStatus = (typeof PRODUCT_STATUSES)[number];
 export const APPROVAL_DECISIONS = ["APPROVED", "REJECTED"] as const;
 export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 
-export type UserRole = "ADMIN" | "MANAGER" | "ENGINEER" | "FINANCE";
+// Additive (ADR 0007 in the API): MANAGER/ENGINEER are the old module's roles,
+// kept as-is; the rest are the SOP domain's. Neither group is renamed or
+// removed for the other's sake.
+export type UserRole =
+  | "ADMIN"
+  | "MANAGER"
+  | "ENGINEER"
+  | "FINANCE"
+  | "PMO"
+  | "PRODUCT_DESIGNER"
+  | "ENGINEERING"
+  | "MANAGEMENT"
+  | "MERCHANDISER";
 
 /**
  * Who the viewer is *to a product* (ADR 0004), decided per product, not from
@@ -381,4 +393,215 @@ export interface AddProgressNoteResponse {
   stageId: string;
   note: string;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// SOP domain (ADR 0006/0007 in the API) — Project (Stage 1), TechPack list
+// shape and ProtoRequest (Stages 2-3). Coexists with, does not replace, the
+// old module's types above. Built out incrementally, screen by screen,
+// alongside apps/web; TechPack's full detail shape (versions, attachments,
+// remarks, confirmation, approval) is added once the tech pack detail screen
+// needs it.
+// ---------------------------------------------------------------------------
+
+export const PROJECT_PHASES = ["PROTO", "BULK"] as const;
+export type ProjectPhase = (typeof PROJECT_PHASES)[number];
+
+export const PROJECT_STATUSES = ["ACTIVE", "COMPLETED"] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
+/** Shape of `GET /projects`, `GET /projects/:id`, and the response of `POST /projects`. */
+export interface Project {
+  id: string;
+  code: string;
+  name: string;
+  productName: string;
+  productCategory: string | null;
+  phase: ProjectPhase;
+  status: ProjectStatus;
+  protoCompletedAt: string | null;
+  completedAt: string | null;
+  createdById: string;
+  createdBy: UserSummary;
+  createdAt: string;
+}
+
+/** Body of `POST /projects`. PMO or ADMIN only. */
+export interface CreateProjectRequest {
+  name: string;
+  productName: string;
+  productCategory?: string;
+}
+
+/** File metadata (ADR 0008) - bytes are reachable only through the
+ * authenticated `GET /attachments/:id/download`, never a URL on this object. */
+export interface Attachment {
+  id: string;
+  storageKey: string;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  uploadedById: string;
+  uploadedBy: UserSummary;
+  uploadedAt: string;
+  techPackVersionId: string | null;
+}
+
+/** One entry in a TechPackVersion's review thread (Stage 3, Engineering half). */
+export interface TechPackRemark {
+  id: string;
+  techPackVersionId: string;
+  authorId: string;
+  author: UserSummary;
+  body: string;
+  createdAt: string;
+}
+
+/** Body of `POST /tech-packs/:id/versions/:versionNumber/remarks`. ENGINEERING,
+ * PRODUCT_DESIGNER or ADMIN; response is the created `TechPackRemark`. */
+export interface AddTechPackRemarkRequest {
+  body: string;
+}
+
+/** Engineering's sign-off on one exact TechPackVersion (Stage 3). Also the
+ * response shape of `POST .../confirm`. */
+export interface TechPackConfirmation {
+  id: string;
+  techPackVersionId: string;
+  confirmedById: string;
+  confirmedBy: UserSummary;
+  confirmedAt: string;
+}
+
+/** Management's decision on one exact TechPackVersion (Stage 3). */
+export interface TechPackApproval {
+  id: string;
+  techPackVersionId: string;
+  decision: ApprovalDecision;
+  decidedById: string;
+  decidedBy: UserSummary;
+  decidedAt: string;
+  notes: string | null;
+}
+
+/** Body of `POST /tech-packs/:id/versions/:versionNumber/decision`. MANAGEMENT
+ * only; `notes` is required when rejecting. */
+export interface DecideTechPackVersionRequest {
+  decision: ApprovalDecision;
+  notes?: string;
+}
+
+/** One revision of a TechPack, always nested under `TechPackDetail.versions`
+ * (there is no standalone "get one version" endpoint). */
+export interface TechPackVersion {
+  id: string;
+  techPackId: string;
+  versionNumber: number;
+  notes: string | null;
+  uploadedById: string;
+  uploadedBy: UserSummary;
+  uploadedAt: string;
+  /** Oldest first. */
+  attachments: Attachment[];
+  /** Oldest first. */
+  remarks: TechPackRemark[];
+  confirmation: TechPackConfirmation | null;
+  approval: TechPackApproval | null;
+}
+
+/** Shape of `GET /tech-packs/:id/versions` is nested here, newest first (there
+ * is no separate endpoint for it) - see `TechPackListItem` for the narrower
+ * `GET /tech-packs` list shape. Also the response of `POST /tech-packs`,
+ * `POST .../versions`, and the `techPack` field of `POST .../decision`'s
+ * response. */
+export interface TechPackDetail {
+  id: string;
+  code: string;
+  projectId: string;
+  project: { id: string; code: string; name: string; phase: ProjectPhase };
+  phase: ProjectPhase;
+  createdById: string;
+  createdBy: UserSummary;
+  createdAt: string;
+  voidedAt: string | null;
+  voidedById: string | null;
+  voidedBy: UserSummary | null;
+  voidReason: string | null;
+  supersedesId: string | null;
+  supersedes: { id: string; code: string } | null;
+  /** The TechPack that replaced this one, if Management rejected it. */
+  supersededBy: { id: string; code: string } | null;
+  /** Newest first. */
+  versions: TechPackVersion[];
+}
+
+/** Response of `POST /tech-packs/:id/versions/:versionNumber/decision`. On
+ * `REJECTED`, `techPack` is the *new* successor TechPack (zero versions of
+ * its own yet), not the one just decided on, and `protoRequest` is null. */
+export interface DecideTechPackVersionResponse {
+  decision: ApprovalDecision;
+  techPack: TechPackDetail;
+  protoRequest: ProtoRequest | null;
+}
+
+/** Shape of each entry in `GET /tech-packs` (narrower than `GET /tech-packs/:id` —
+ * no `versions`, `supersedes`/`supersededBy` or `voidedBy`). */
+export interface TechPackListItem {
+  id: string;
+  code: string;
+  projectId: string;
+  project: { id: string; code: string; name: string };
+  phase: ProjectPhase;
+  createdById: string;
+  createdBy: UserSummary;
+  createdAt: string;
+  voidedAt: string | null;
+  voidedById: string | null;
+  voidReason: string | null;
+  /** The TechPack this one replaced, if Management rejected it. */
+  supersedesId: string | null;
+}
+
+/** Shape of `GET /proto-requests`, `GET /proto-requests/:id`, and the
+ * `protoRequest` field of `POST .../decision`'s response when approved. */
+export interface ProtoRequest {
+  id: string;
+  code: string;
+  projectId: string;
+  project: { id: string; code: string; name: string };
+  techPackVersionId: string;
+  techPackVersion: {
+    id: string;
+    versionNumber: number;
+    techPack: { id: string; code: string };
+  };
+  createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Attachment upload policy (ADR 0008 in the API) — shared so the web upload
+// form can reject a disallowed file *before* sending it, with the exact same
+// rule the API enforces regardless. The API's own copy of these (previously
+// in apps/api/src/services/storage/AttachmentStorage.ts) now just re-exports
+// them from here, so there is one definition, not two that could drift.
+// ---------------------------------------------------------------------------
+
+export const MAX_ATTACHMENT_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
+
+export const ALLOWED_ATTACHMENT_EXTENSIONS = [
+  "pdf",
+  "doc",
+  "docx",
+  "dwg",
+  "dxf",
+  "step",
+  "stp",
+  "png",
+  "jpg",
+  "jpeg",
+] as const;
+
+export function isAllowedAttachmentExtension(originalName: string): boolean {
+  const ext = originalName.split(".").pop()?.toLowerCase();
+  return ext !== undefined && (ALLOWED_ATTACHMENT_EXTENSIONS as readonly string[]).includes(ext);
 }

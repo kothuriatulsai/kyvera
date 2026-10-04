@@ -322,6 +322,21 @@ describe("GET /proto-requests and /proto-requests/:id", () => {
     expect(detail.body.techPackVersion.versionNumber).toBe(1);
   });
 
+  it("filters by projectId", async () => {
+    const { techPackId: techPackIdA, project: projectA } = await setUpConfirmedVersion1();
+    const { techPackId: techPackIdB } = await setUpConfirmedVersion1();
+    const { agent: management } = await createTestUser(app, "MANAGEMENT");
+    const approvedA = await decide(management, techPackIdA, 1, { decision: "APPROVED" });
+    await decide(management, techPackIdB, 1, { decision: "APPROVED" });
+
+    const { agent: finance } = await createTestUser(app, "FINANCE");
+    const res = await finance.get(`/proto-requests?projectId=${projectA.id}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveLength(1);
+    expect(res.body[0].id).toBe(approvedA.body.protoRequest.id);
+  });
+
   it("404s an unknown (but well-formed) id", async () => {
     const { agent: finance } = await createTestUser(app, "FINANCE");
 

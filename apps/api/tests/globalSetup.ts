@@ -5,7 +5,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { Client } from "pg";
 import { stageDefinitionSeedData } from "../src/prisma/stageDefinitionSeedData";
-import { resolveTestDatabaseUrl, TEST_UPLOADS_DIR } from "./testEnv";
+import { resolveTestDatabaseUrl, TEST_UPLOADS_ROOT } from "./testEnv";
 
 const API_ROOT = path.resolve(__dirname, ".."); // apps/api - where prisma.config.ts lives
 
@@ -21,15 +21,16 @@ export default async function setup() {
   await ensureDatabaseExists(testDatabaseUrl);
   runMigrations(testDatabaseUrl);
   await resetAndSeed(testDatabaseUrl);
-  await resetUploadsDir();
+  await resetUploadsRoot();
 
   // Belt-and-suspenders alongside setup.ts, which each worker runs for
-  // itself - see testEnv.ts for why the uploads dir can't rely on this alone.
+  // itself - see testEnv.ts for why DATABASE_URL can't rely on this alone.
+  // There's no one correct UPLOADS_DIR to set here: that's per-worker, set
+  // only by setup.ts (see testEnv.ts's resolveTestUploadsDir).
   process.env.DATABASE_URL = testDatabaseUrl;
-  process.env.UPLOADS_DIR = TEST_UPLOADS_DIR;
 
   return async function teardown() {
-    await rm(TEST_UPLOADS_DIR, { recursive: true, force: true });
+    await rm(TEST_UPLOADS_ROOT, { recursive: true, force: true });
     // The test database itself is left in place (truncated, not dropped) -
     // the next run's setup() truncates it again, and leaving it avoids
     // re-running `migrate deploy` from scratch every time.
@@ -94,7 +95,7 @@ async function truncateAllTables(prisma: PrismaClient) {
   await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`);
 }
 
-async function resetUploadsDir() {
-  await rm(TEST_UPLOADS_DIR, { recursive: true, force: true });
-  await mkdir(TEST_UPLOADS_DIR, { recursive: true });
+async function resetUploadsRoot() {
+  await rm(TEST_UPLOADS_ROOT, { recursive: true, force: true });
+  await mkdir(TEST_UPLOADS_ROOT, { recursive: true });
 }

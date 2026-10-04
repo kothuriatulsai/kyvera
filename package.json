@@ -5,11 +5,13 @@
   "description": "Kyvera — business operations platform",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "e2e"
   ],
   "scripts": {
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
+    "build": "npm run build --workspace packages/shared-types && npm run build --workspace apps/api && npm run build --workspace apps/web",
     "test": "npm run test --workspaces --if-present"
   }
 }

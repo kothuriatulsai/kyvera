@@ -30,9 +30,23 @@ export function resolveTestDatabaseUrl(): string {
   return url;
 }
 
-// A fixed path, not a fresh mkdtemp() per run: every worker process needs to
-// resolve to the *same* directory independently (there is no reliable way to
+// A fixed root, not a fresh mkdtemp() per run: every worker process needs to
+// resolve to a directory under it independently (there is no reliable way to
 // hand a randomly-generated path from globalSetup, which runs once in the
 // main process, to every worker it spawns), and globalSetup removes and
-// recreates it on each run anyway, so a stable name costs nothing.
-export const TEST_UPLOADS_DIR = path.join(os.tmpdir(), "kyvera-test-uploads");
+// recreates the whole root on each run anyway, so a stable name costs nothing.
+export const TEST_UPLOADS_ROOT = path.join(os.tmpdir(), "kyvera-test-uploads");
+
+/**
+ * Each vitest worker gets its own subdirectory under the root, keyed by
+ * `VITEST_POOL_ID` (set by Vitest, unique per worker process). Without this,
+ * two test files running in different workers at the same time shared one
+ * uploads directory - harmless for most tests, but a test that snapshots
+ * "no new files appeared" could be tripped by a completely unrelated upload
+ * from another file's worker landing in the same window (the actual cause of
+ * an intermittent failure in techPacks.test.ts's orphan-file test).
+ */
+export function resolveTestUploadsDir(): string {
+  const poolId = process.env.VITEST_POOL_ID ?? "main";
+  return path.join(TEST_UPLOADS_ROOT, poolId);
+}

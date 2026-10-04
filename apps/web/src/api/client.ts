@@ -32,30 +32,27 @@ export function setSessionEndedHandler(handler: (() => void) | null) {
   onSessionEnded = handler
 }
 
-interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
-  body?: unknown
-  /**
-   * Send the token, and treat a 401 as "session over". Off for login itself: a 401
-   * there just means the credentials were wrong, and there is no session to end.
-   */
-  authenticated?: boolean
+interface RawRequestOptions {
+  method: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  headers: Record<string, string>
+  body?: BodyInit
+  authenticated: boolean
 }
 
-export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, authenticated = true } = options
-
-  const headers: Record<string, string> = {}
-  if (body !== undefined) headers['Content-Type'] = 'application/json'
-  if (authenticated && accessToken) headers.Authorization = `Bearer ${accessToken}`
+/**
+ * The fetch/error-handling plumbing shared by every request shape (JSON body,
+ * multipart form, blob response): auth header, the "API is unreachable" case,
+ * the API's `{ error }` body on a non-2xx response, and ending the session on
+ * a 401. Returns the raw, successful `Response` - callers decide how to read
+ * its body (`rawRequest` below reads JSON; `apiGetBlob` reads a `Blob`).
+ */
+async function rawFetch(path: string, options: RawRequestOptions): Promise<Response> {
+  const headers = { ...options.headers }
+  if (options.authenticated && accessToken) headers.Authorization = `Bearer ${accessToken}`
 
   let res: Response
   try {
-    res = await fetch(`${API_URL}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
+    res = await fetch(`${API_URL}${path}`, { method: options.method, headers, body: options.body })
   } catch {
     // fetch only rejects when no response arrived. That is almost always the API
     // being down, or the browser blocking the response because this page's origin
@@ -70,15 +67,57 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (!res.ok) {
     // The API's error middleware always responds with `{ error: string }`.
     const errorBody = (await res.json().catch(() => null)) as { error?: string } | null
-    if (res.status === 401 && authenticated) onSessionEnded?.()
+    if (res.status === 401 && options.authenticated) onSessionEnded?.()
     throw new ApiError(res.status, errorBody?.error ?? `Request failed with status ${res.status}`)
   }
 
+  return res
+}
+
+async function rawRequest<T>(path: string, options: RawRequestOptions): Promise<T> {
+  const res = await rawFetch(path, options)
   if (res.status === 204) return undefined as T
   return (await res.json()) as T
+}
+
+interface RequestOptions {
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'
+  body?: unknown
+  /**
+   * Send the token, and treat a 401 as "session over". Off for login itself: a 401
+   * there just means the credentials were wrong, and there is no session to end.
+   */
+  authenticated?: boolean
+}
+
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const { method = 'GET', body, authenticated = true } = options
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+
+  return rawRequest<T>(path, {
+    method,
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    authenticated,
+  })
 }
 
 export const apiGet = <T>(path: string) => apiRequest<T>(path)
 
 export const apiPost = <T>(path: string, body: unknown = {}) =>
   apiRequest<T>(path, { method: 'POST', body })
+
+/**
+ * POST a `FormData` body - file uploads. No `Content-Type` header is set: the
+ * browser attaches its own `multipart/form-data` boundary, and setting one by
+ * hand would omit that boundary and break the upload.
+ */
+export const apiPostMultipart = <T>(path: string, body: FormData) =>
+  rawRequest<T>(path, { method: 'POST', headers: {}, body, authenticated: true })
+
+/** GET a binary response (a file download) as a `Blob`, instead of JSON. */
+export const apiGetBlob = async (path: string): Promise<Blob> => {
+  const res = await rawFetch(path, { method: 'GET', headers: {}, authenticated: true })
+  return res.blob()
+}

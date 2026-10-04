@@ -5,6 +5,11 @@ import { DelayedPage } from './pages/DelayedPage'
 import { LoginPage } from './pages/LoginPage'
 import { ProductDetailPage } from './pages/ProductDetailPage'
 import { ProductListPage } from './pages/ProductListPage'
+import { ProjectDetailPage } from './pages/ProjectDetailPage'
+import { ProjectListPage } from './pages/ProjectListPage'
+import { ProtoRequestDetailPage } from './pages/ProtoRequestDetailPage'
+import { ProtoRequestListPage } from './pages/ProtoRequestListPage'
+import { TechPackDetailPage } from './pages/TechPackDetailPage'
 
 function App() {
   return (
@@ -19,6 +24,11 @@ function App() {
             <Route path="/" element={<ProductListPage />} />
             <Route path="/delayed" element={<DelayedPage />} />
             <Route path="/products/:id" element={<ProductDetailPage />} />
+            <Route path="/projects" element={<ProjectListPage />} />
+            <Route path="/projects/:id" element={<ProjectDetailPage />} />
+            <Route path="/tech-packs/:id" element={<TechPackDetailPage />} />
+            <Route path="/proto-requests" element={<ProtoRequestListPage />} />
+            <Route path="/proto-requests/:id" element={<ProtoRequestDetailPage />} />
             <Route path="*" element={<p className="muted">Page not found.</p>} />
           </Route>
         </Routes>
