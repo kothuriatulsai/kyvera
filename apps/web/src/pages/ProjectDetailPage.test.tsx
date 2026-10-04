@@ -148,14 +148,15 @@ describe('Project detail', () => {
     expect(successorLink.getAttribute('href')).toBe('/tech-packs/tp2')
   })
 
-  it('lists proto requests with a link to their tech pack', async () => {
+  it('lists proto requests with links to their own detail page and to their tech pack', async () => {
     stubDetail({ protoRequests: [protoRequest()] })
     renderApp(PROJECT, { session: adminSession })
 
-    await screen.findByText('PR-000001')
-    expect(screen.getByText('v1')).toBeTruthy()
-    const link = screen.getByRole('link', { name: 'TP-000001' })
-    expect(link.getAttribute('href')).toBe('/tech-packs/tp1')
+    await screen.findByText('v1')
+    const codeLink = screen.getByRole('link', { name: 'PR-000001' })
+    expect(codeLink.getAttribute('href')).toBe('/proto-requests/proto1')
+    const techPackLink = screen.getByRole('link', { name: 'TP-000001' })
+    expect(techPackLink.getAttribute('href')).toBe('/tech-packs/tp1')
   })
 })
 
