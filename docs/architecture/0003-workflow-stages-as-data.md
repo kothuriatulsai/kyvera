@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Superseded by [ADR 0010](0010-retire-generic-lifecycle-module.md)
+(2026-10-06): the generic lifecycle module this ADR governs has been removed.
 
 ## Context
 

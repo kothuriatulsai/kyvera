@@ -9,6 +9,9 @@ choices made while implementing, including where it goes beyond what is written
 above, are in "Implementation notes". The frontend does not use the assignee
 view yet.
 
+Superseded by [ADR 0010](0010-retire-generic-lifecycle-module.md)
+(2026-10-06): the generic lifecycle module this ADR governs has been removed.
+
 ## Context
 
 Module 1 currently has no notion of who is acting. `ownerId` and
