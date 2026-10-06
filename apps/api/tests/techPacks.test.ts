@@ -132,8 +132,6 @@ describe("POST /tech-packs", () => {
   });
 
   it.each([
-    "MANAGER",
-    "ENGINEER",
     "FINANCE",
     "PMO",
     "ENGINEERING",
@@ -300,7 +298,7 @@ describe("POST /tech-packs/:id/versions", () => {
     expect(res.status).toBe(409);
   });
 
-  it.each(["MANAGER", "ENGINEER", "FINANCE", "PMO", "ENGINEERING", "MANAGEMENT"] as UserRole[])(
+  it.each(["FINANCE", "PMO", "ENGINEERING", "MANAGEMENT"] as UserRole[])(
     "forbids %s",
     async (role) => {
       const { agent: pmo } = await createTestUser(app, "PMO");

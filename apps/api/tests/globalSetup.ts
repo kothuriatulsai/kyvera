@@ -4,7 +4,6 @@ import path from "node:path";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
 import { Client } from "pg";
-import { stageDefinitionSeedData } from "../src/prisma/stageDefinitionSeedData";
 import { resolveTestDatabaseUrl, TEST_UPLOADS_ROOT } from "./testEnv";
 
 const API_ROOT = path.resolve(__dirname, ".."); // apps/api - where prisma.config.ts lives
@@ -20,7 +19,7 @@ export default async function setup() {
 
   await ensureDatabaseExists(testDatabaseUrl);
   runMigrations(testDatabaseUrl);
-  await resetAndSeed(testDatabaseUrl);
+  await truncateDatabase(testDatabaseUrl);
   await resetUploadsRoot();
 
   // Belt-and-suspenders alongside setup.ts, which each worker runs for
@@ -65,15 +64,11 @@ function runMigrations(testDatabaseUrl: string) {
   });
 }
 
-async function resetAndSeed(testDatabaseUrl: string) {
+async function truncateDatabase(testDatabaseUrl: string) {
   const adapter = new PrismaPg({ connectionString: testDatabaseUrl });
   const prisma = new PrismaClient({ adapter });
   try {
     await truncateAllTables(prisma);
-
-    for (const stage of stageDefinitionSeedData) {
-      await prisma.stageDefinition.create({ data: stage });
-    }
   } finally {
     await prisma.$disconnect();
   }

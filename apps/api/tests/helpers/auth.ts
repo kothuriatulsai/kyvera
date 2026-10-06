@@ -50,9 +50,11 @@ export async function createTestUser(
 }
 
 /**
- * Removes the users made by `createTestUser`. Call it *after* deleting the
- * products the suite created: assignments, history, notes and approvals all
- * cascade from the product, and they'd otherwise block deleting the users.
+ * Removes the users made by `createTestUser`. Every SOP relation to `User` is
+ * `onDelete: Restrict` (ADR 0006, point 9), so call this *after* deleting any
+ * row a test user created (a Project, TechPack, remark, confirmation,
+ * approval, attachment) - otherwise this delete fails with a foreign key
+ * violation instead of silently succeeding.
  */
 export async function cleanupTestUsers() {
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });

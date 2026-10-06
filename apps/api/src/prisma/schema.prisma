@@ -6,14 +6,10 @@ datasource db {
   provider = "postgresql"
 }
 
-// Additive expansion for the SOP domain (ADR 0006/0007): MANAGER and ENGINEER
-// are legacy, kept as-is for the old module - not renamed or removed. The new
-// SOP roles get their own values. Consolidation is deferred to the PR that
-// removes the old module.
+// Final role set (ADR 0010): the generic lifecycle module's MANAGER/ENGINEER
+// are retired along with it. Everything below is the SOP domain's roles.
 enum UserRole {
   ADMIN
-  MANAGER
-  ENGINEER
   FINANCE
   PMO
   PRODUCT_DESIGNER
@@ -22,21 +18,6 @@ enum UserRole {
   MERCHANDISER
 
   @@map("user_role")
-}
-
-enum ProductStatus {
-  ON_TRACK
-  DELAYED
-  BLOCKED
-
-  @@map("product_status")
-}
-
-enum AssignmentAction {
-  ASSIGNED
-  UNASSIGNED
-
-  @@map("assignment_action")
 }
 
 enum ApprovalDecision {
@@ -54,18 +35,6 @@ model User {
   passwordHash String   @map("password_hash")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  ownedProducts          Product[]                       @relation("ProductOwner")
-  createdVersions        ProductVersion[]                @relation("VersionCreator")
-  stageResponsibilities  ProductStageHistory[]           @relation("StageResponsible")
-  approvalsDecided       Approval[]                      @relation("ApprovalDecider")
-  stageExits             ProductStageHistory[]           @relation("StageExitedBy")
-  assignments            ProductStageAssignment[]        @relation("AssignmentUser")
-  assignmentsMade        ProductStageAssignment[]        @relation("AssignmentAssigner")
-  assignmentHistoryAbout ProductStageAssignmentHistory[] @relation("AssignmentHistoryUser")
-  assignmentHistoryActed ProductStageAssignmentHistory[] @relation("AssignmentHistoryActor")
-  progressNotes          StageProgressNote[]             @relation("ProgressNoteAuthor")
-
-  // SOP domain (ADR 0006/0007) - additive, disjoint from the relations above.
   projectsCreated          Project[]              @relation("ProjectCreator")
   techPacksCreated         TechPack[]             @relation("TechPackCreator")
   techPacksVoided          TechPack[]             @relation("TechPackVoider")
@@ -78,180 +47,10 @@ model User {
   @@map("users")
 }
 
-// Stored as data (not a hardcoded enum) so the workflow's stages and order
-// can evolve without a code change. See docs/architecture/0003.
-model StageDefinition {
-  id                   String @id @default(uuid()) @db.Uuid
-  name                 String
-  sequenceOrder        Int    @unique @map("sequence_order")
-  expectedDurationDays Int    @map("expected_duration_days")
-
-  products          Product[]
-  stageHistory      ProductStageHistory[]
-  approvals         Approval[]
-  assignments       ProductStageAssignment[]
-  assignmentHistory ProductStageAssignmentHistory[]
-  progressNotes     StageProgressNote[]
-
-  @@map("stage_definitions")
-}
-
-model Product {
-  id                     String           @id @default(uuid()) @db.Uuid
-  name                   String
-  description            String?
-  ownerId                String           @map("owner_id") @db.Uuid
-  owner                  User             @relation("ProductOwner", fields: [ownerId], references: [id])
-  currentStageId         String?          @map("current_stage_id") @db.Uuid
-  currentStage           StageDefinition? @relation(fields: [currentStageId], references: [id])
-  currentVersion         Int              @default(1) @map("current_version")
-  status                 ProductStatus    @default(ON_TRACK)
-  startDate              DateTime?        @map("start_date")
-  expectedCompletionDate DateTime?        @map("expected_completion_date")
-  actualCompletionDate   DateTime?        @map("actual_completion_date")
-  createdAt              DateTime         @default(now()) @map("created_at")
-
-  versions          ProductVersion[]
-  stageHistory      ProductStageHistory[]
-  approvals         Approval[]
-  assignments       ProductStageAssignment[]
-  assignmentHistory ProductStageAssignmentHistory[]
-  progressNotes     StageProgressNote[]
-
-  @@map("products")
-}
-
-// Manufacturing orders (Module 2) will pin to a specific ProductVersion, so
-// a new version created later doesn't retroactively change the spec on an
-// existing order.
-model ProductVersion {
-  id            String     @id @default(uuid()) @db.Uuid
-  productId     String     @map("product_id") @db.Uuid
-  product       Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  versionNumber Int        @map("version_number")
-  spec          String?
-  createdAt     DateTime   @default(now()) @map("created_at")
-  createdById   String     @map("created_by") @db.Uuid
-  createdBy     User       @relation("VersionCreator", fields: [createdById], references: [id])
-  approvals     Approval[]
-
-  @@unique([productId, versionNumber])
-  @@map("product_versions")
-}
-
-// Audit trail of stage transitions, and the source of truth for delay
-// computation (compare enteredAt + stage.expectedDurationDays against
-// actual/current date).
-model ProductStageHistory {
-  id                 String          @id @default(uuid()) @db.Uuid
-  productId          String          @map("product_id") @db.Uuid
-  product            Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  stageId            String          @map("stage_id") @db.Uuid
-  stage              StageDefinition @relation(fields: [stageId], references: [id])
-  enteredAt          DateTime        @default(now()) @map("entered_at")
-  exitedAt           DateTime?       @map("exited_at")
-  actualDurationDays Int?            @map("actual_duration_days")
-  delayed            Boolean         @default(false)
-  delayReason        String?         @map("delay_reason")
-  responsibleUserId  String?         @map("responsible_user_id") @db.Uuid
-  responsibleUser    User?           @relation("StageResponsible", fields: [responsibleUserId], references: [id])
-  // Who triggered the move out of this stage (docs/architecture/0004,
-  // Resolution 8: a transition is attributed to the person who decided it), and
-  // whether it went ahead without every assignee having signed off.
-  exitedById         String?         @map("exited_by") @db.Uuid
-  exitedBy           User?           @relation("StageExitedBy", fields: [exitedById], references: [id])
-  forcedExit         Boolean         @default(false) @map("forced_exit")
-
-  @@map("product_stage_history")
-}
-
-// Append-only record of an approval decision on one exact product version.
-// This is the Module 1 -> Module 2 handoff contract: manufacturing orders
-// look for an APPROVED row for their product + pinned version rather than
-// inferring approval from "reached the last stage". See docs/architecture/0005.
-model Approval {
-  id               String           @id @default(uuid()) @db.Uuid
-  productId        String           @map("product_id") @db.Uuid
-  product          Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  productVersionId String           @map("product_version_id") @db.Uuid
-  productVersion   ProductVersion   @relation(fields: [productVersionId], references: [id], onDelete: Cascade)
-  stageId          String           @map("stage_id") @db.Uuid
-  stage            StageDefinition  @relation(fields: [stageId], references: [id])
-  decision         ApprovalDecision
-  decidedById      String           @map("decided_by") @db.Uuid
-  decidedBy        User             @relation("ApprovalDecider", fields: [decidedById], references: [id])
-  decidedAt        DateTime         @default(now()) @map("decided_at")
-  notes            String?
-
-  @@index([productId, productVersionId])
-  @@map("approvals")
-}
-
-// Which users work which stage of which product (docs/architecture/0004). This
-// is what gates visibility into a product's stage data; a user's global role
-// does not. readyAt is the assignee's own "I'm done with this stage" mark,
-// cleared whenever the product (re)enters the stage.
-model ProductStageAssignment {
-  id           String          @id @default(uuid()) @db.Uuid
-  productId    String          @map("product_id") @db.Uuid
-  product      Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  stageId      String          @map("stage_id") @db.Uuid
-  stage        StageDefinition @relation(fields: [stageId], references: [id])
-  userId       String          @map("user_id") @db.Uuid
-  user         User            @relation("AssignmentUser", fields: [userId], references: [id])
-  assignedAt   DateTime        @default(now()) @map("assigned_at")
-  assignedById String          @map("assigned_by") @db.Uuid
-  assignedBy   User            @relation("AssignmentAssigner", fields: [assignedById], references: [id])
-  readyAt      DateTime?       @map("ready_at")
-
-  @@unique([productId, stageId, userId])
-  @@index([userId])
-  @@map("product_stage_assignments")
-}
-
-// Append-only audit trail of assignment changes. Deliberately not a foreign key
-// to the assignment row: that row is deleted on unassign, the history must not be.
-model ProductStageAssignmentHistory {
-  id        String           @id @default(uuid()) @db.Uuid
-  productId String           @map("product_id") @db.Uuid
-  product   Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
-  stageId   String           @map("stage_id") @db.Uuid
-  stage     StageDefinition  @relation(fields: [stageId], references: [id])
-  userId    String           @map("user_id") @db.Uuid
-  user      User             @relation("AssignmentHistoryUser", fields: [userId], references: [id])
-  action    AssignmentAction
-  actedById String           @map("acted_by") @db.Uuid
-  actedBy   User             @relation("AssignmentHistoryActor", fields: [actedById], references: [id])
-  actedAt   DateTime         @default(now()) @map("acted_at")
-
-  @@index([productId])
-  @@map("product_stage_assignment_history")
-}
-
-// Ongoing progress/delay notes an assignee records on their own stage. Scoped,
-// functional data - not the deferred free-form `comments` table (ADR 0004,
-// Resolution 9). Append-only.
-model StageProgressNote {
-  id        String          @id @default(uuid()) @db.Uuid
-  productId String          @map("product_id") @db.Uuid
-  product   Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
-  stageId   String          @map("stage_id") @db.Uuid
-  stage     StageDefinition @relation(fields: [stageId], references: [id])
-  userId    String          @map("user_id") @db.Uuid
-  user      User            @relation("ProgressNoteAuthor", fields: [userId], references: [id])
-  note      String
-  createdAt DateTime        @default(now()) @map("created_at")
-
-  @@index([productId, stageId])
-  @@map("stage_progress_notes")
-}
-
 // =============================================================================
-// SOP domain (ADR 0006, ADR 0007, ADR 0008) - Slice A: Project, Tech Pack +
-// versions, Engineering confirmation / Management approval, Proto Request.
-// Coexists with the models above without referencing them (ADR 0007); shares
-// only `User`. Every relation here uses onDelete: Restrict, deliberately
-// stricter than the old module's Cascade (ADR 0006, point 9).
+// SOP domain (ADR 0006, ADR 0007, ADR 0008) - Project, Tech Pack + versions,
+// Engineering confirmation / Management approval, Proto Request. Every
+// relation here uses onDelete: Restrict (ADR 0006, point 9).
 //
 // `code` columns default to a Postgres sequence + format_code() call via
 // dbgenerated() - see ADR 0006 for the exact migration-SQL procedure this
@@ -368,8 +167,8 @@ model Attachment {
 }
 
 // The system chat/remarks thread on one version during Engineering's review
-// (SOP Stage 3). Scoped functional data, not the deferred generic `comments`
-// table - same reasoning as StageProgressNote (ADR 0004, Resolution 9).
+// (SOP Stage 3). Scoped functional data, not a generic free-form comments
+// table.
 model TechPackRemark {
   id                String          @id @default(uuid()) @db.Uuid
   techPackVersionId String          @map("tech_pack_version_id") @db.Uuid

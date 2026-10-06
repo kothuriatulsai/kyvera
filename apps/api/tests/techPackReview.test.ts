@@ -103,7 +103,7 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
     expect(fromAdmin.status).toBe(201);
   });
 
-  it.each(["MANAGER", "ENGINEER", "FINANCE", "PMO", "MANAGEMENT", "MERCHANDISER"] as UserRole[])(
+  it.each(["FINANCE", "PMO", "MANAGEMENT", "MERCHANDISER"] as UserRole[])(
     "forbids %s",
     async (role) => {
       const { techPackId } = await setUpVersion1();
@@ -223,8 +223,6 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   });
 
   it.each([
-    "MANAGER",
-    "ENGINEER",
     "FINANCE",
     "PMO",
     "PRODUCT_DESIGNER",

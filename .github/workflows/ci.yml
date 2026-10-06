@@ -98,10 +98,10 @@ jobs:
         run: npm run test
 
       - name: Seed users for the Playwright smoke test
-        # `npm run test` truncates kyvera_test (apps/api/tests/globalSetup.ts)
-        # and only reseeds stage_definitions - the dev user list (pmo@, etc.)
-        # has to come back separately, now, for the browser test below to log
-        # in as one.
+        # `npm run test` truncates kyvera_test and reseeds nothing
+        # (apps/api/tests/globalSetup.ts) - the dev user list (pmo@, etc.) has
+        # to come back separately, now, for the browser test below to log in
+        # as one.
         run: npm run db:seed --workspace apps/api
 
       - name: Playwright smoke test

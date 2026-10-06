@@ -1,20 +1,14 @@
 import "dotenv/config";
 import { prisma } from "../repositories/prismaClient";
 import { hashPassword, isArgon2Hash } from "../services/passwordService";
-import { stageDefinitionSeedData as stages } from "./stageDefinitionSeedData";
 
 const DEFAULT_SEED_PASSWORD = "kyvera-dev-password";
 
-// No auth module yet (that's a separate build item), so there's no real
-// password hashing to seed either — these exist only so product CRUD has
-// user ids to reference for ownerId/createdById/responsibleUserId.
+// One user per final role (ADR 0010). Accounts come only from this seed for
+// now - there is no self-registration or admin "create user" endpoint yet.
 const users = [
-  { email: "owner@kyvera.dev", name: "Dana Owner", role: "MANAGER" as const },
-  { email: "engineer@kyvera.dev", name: "Eli Engineer", role: "ENGINEER" as const },
-  { email: "finance@kyvera.dev", name: "Fran Finance", role: "FINANCE" as const },
   { email: "admin@kyvera.dev", name: "Alex Admin", role: "ADMIN" as const },
-
-  // SOP domain (ADR 0006/0007), one per new role.
+  { email: "finance@kyvera.dev", name: "Fran Finance", role: "FINANCE" as const },
   { email: "pmo@kyvera.dev", name: "Priya PMO", role: "PMO" as const },
   { email: "designer@kyvera.dev", name: "Deepa Designer", role: "PRODUCT_DESIGNER" as const },
   { email: "engineering@kyvera.dev", name: "Emre Engineering", role: "ENGINEERING" as const },
@@ -23,14 +17,6 @@ const users = [
 ];
 
 async function main() {
-  for (const stage of stages) {
-    await prisma.stageDefinition.upsert({
-      where: { sequenceOrder: stage.sequenceOrder },
-      update: stage,
-      create: stage,
-    });
-  }
-
   // Seeded users can log in with this password. It is dev data — a well-known
   // value in a public repo — so never seed a shared environment with it.
   const seedPasswordHash = await hashPassword(process.env.SEED_USER_PASSWORD ?? DEFAULT_SEED_PASSWORD);
