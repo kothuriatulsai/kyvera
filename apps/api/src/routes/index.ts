@@ -5,6 +5,7 @@ import { authRoutes } from "./authRoutes";
 import { projectRoutes } from "./projectRoutes";
 import { protoRequestRoutes } from "./protoRequestRoutes";
 import { techPackRoutes } from "./techPackRoutes";
+import { userRoutes } from "./userRoutes";
 
 export const routes = Router();
 
@@ -18,3 +19,4 @@ routes.use("/projects", projectRoutes);
 routes.use("/tech-packs", techPackRoutes);
 routes.use("/attachments", attachmentRoutes);
 routes.use("/proto-requests", protoRequestRoutes);
+routes.use("/users", userRoutes);

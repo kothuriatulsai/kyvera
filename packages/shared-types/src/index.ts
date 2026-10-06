@@ -6,20 +6,24 @@ export const APPROVAL_DECISIONS = ["APPROVED", "REJECTED"] as const;
 export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 
 /** Final role set (ADR 0010). */
-export type UserRole =
-  | "ADMIN"
-  | "FINANCE"
-  | "PMO"
-  | "PRODUCT_DESIGNER"
-  | "ENGINEERING"
-  | "MANAGEMENT"
-  | "MERCHANDISER";
+export const USER_ROLES = [
+  "ADMIN",
+  "FINANCE",
+  "PMO",
+  "PRODUCT_DESIGNER",
+  "ENGINEERING",
+  "MANAGEMENT",
+  "MERCHANDISER",
+] as const;
+export type UserRole = (typeof USER_ROLES)[number];
 
 export interface UserSummary {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  /** ADR 0010/0011: accounts are deactivated, never deleted. */
+  isActive: boolean;
   createdAt: string;
 }
 
@@ -235,6 +239,33 @@ export interface ProtoRequest {
     techPack: { id: string; code: string };
   };
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// User management (ADR 0010/0011 in the API) — admin-only. Accounts are
+// created, role-changed, deactivated/reactivated and password-reset through
+// these; there is no self-registration or self-service endpoint.
+// ---------------------------------------------------------------------------
+
+/** Body of `POST /users`. ADMIN only. Response: 201 with the created `UserSummary`. */
+export interface CreateUserRequest {
+  name: string;
+  email: string;
+  role: UserRole;
+  /** 8 to 128 characters. The user logs in with this until it's reset. */
+  temporaryPassword: string;
+}
+
+/** Body of `PATCH /users/:id/role`. ADMIN only. */
+export interface ChangeUserRoleRequest {
+  role: UserRole;
+}
+
+/** Body of `POST /users/:id/reset-password`. ADMIN only. Invalidates every
+ * token already issued to this user (ADR 0011). */
+export interface ResetPasswordRequest {
+  /** 8 to 128 characters. */
+  password: string;
 }
 
 // ---------------------------------------------------------------------------

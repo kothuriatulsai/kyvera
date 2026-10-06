@@ -56,8 +56,10 @@ describe("POST /auth/login", () => {
     expect(res.body.user.passwordHash).toBeUndefined();
 
     // Nothing that can go stale (assignments, ownership) is baked into the token.
+    // `iatMs` (ADR 0011) is the one exception: millisecond-precision issue time,
+    // used only to compare against a password reset, not an identity/role claim.
     const payload = decodePayload(res.body.token);
-    expect(Object.keys(payload).sort()).toEqual(["exp", "iat", "role", "sub"]);
+    expect(Object.keys(payload).sort()).toEqual(["exp", "iat", "iatMs", "role", "sub"]);
     expect(payload.sub).toBe(user.id);
     expect(payload.role).toBe("FINANCE");
     expect((payload.exp as number) - (payload.iat as number)).toBe(res.body.expiresIn);
@@ -137,6 +139,12 @@ describe("authentication on protected routes", () => {
     ["GET", "/proto-requests"],
     ["GET", "/proto-requests/abc"],
     ["GET", "/attachments/abc/download"],
+    ["GET", "/users"],
+    ["POST", "/users"],
+    ["PATCH", "/users/abc/role"],
+    ["POST", "/users/abc/deactivate"],
+    ["POST", "/users/abc/reactivate"],
+    ["POST", "/users/abc/reset-password"],
   ] as const)("requires a token for %s %s", async (method, path) => {
     const res = await request(app)[method.toLowerCase() as "get"](path);
     expect(res.status).toBe(401);

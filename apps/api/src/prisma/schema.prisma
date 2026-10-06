@@ -28,12 +28,22 @@ enum ApprovalDecision {
 }
 
 model User {
-  id           String   @id @default(uuid()) @db.Uuid
-  name         String
-  email        String   @unique
-  role         UserRole
-  passwordHash String   @map("password_hash")
-  createdAt    DateTime @default(now()) @map("created_at")
+  id                String    @id @default(uuid()) @db.Uuid
+  name              String
+  email             String    @unique
+  role              UserRole
+  passwordHash      String    @map("password_hash")
+  // Accounts are admin-managed only (ADR 0010/0011): deactivated, never hard
+  // deleted - every SOP relation to User is onDelete: Restrict, so a real
+  // delete would be blocked the moment the user had created/confirmed/
+  // approved anything anyway.
+  isActive          Boolean   @default(true) @map("is_active")
+  // Set on creation and on every admin password reset (ADR 0011). Null means
+  // "never reset since creation" (pre-existing seeded rows). authenticate
+  // rejects a token whose `iat` predates this, so a reset invalidates every
+  // session the old password was logged into - not just future logins.
+  passwordChangedAt DateTime? @map("password_changed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   projectsCreated          Project[]              @relation("ProjectCreator")
   techPacksCreated         TechPack[]             @relation("TechPackCreator")
