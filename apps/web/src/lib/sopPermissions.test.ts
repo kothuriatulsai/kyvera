@@ -4,8 +4,6 @@ import { canConfirm, canCreateProject, canCreateTechPack, canDecide, canRemark, 
 
 const ALL_ROLES: UserRole[] = [
   'ADMIN',
-  'MANAGER',
-  'ENGINEER',
   'FINANCE',
   'PMO',
   'PRODUCT_DESIGNER',

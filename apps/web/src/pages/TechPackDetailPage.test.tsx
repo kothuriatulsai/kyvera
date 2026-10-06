@@ -658,7 +658,7 @@ describe('no SOP actions anywhere for roles with none', () => {
     ],
   })
 
-  it.each(['FINANCE', 'MERCHANDISER', 'MANAGER', 'ENGINEER', 'PMO'] as UserRole[])(
+  it.each(['FINANCE', 'MERCHANDISER', 'PMO'] as UserRole[])(
     '%s sees no action controls and no remark form, read or write',
     async (role) => {
       const byRole = Object.fromEntries(ALL_SESSIONS.map((s) => [s.user.role, s]))

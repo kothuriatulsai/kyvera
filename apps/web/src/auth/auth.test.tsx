@@ -1,17 +1,25 @@
+import type { Project } from '@kyvera/shared-types'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import {
-  adminSession,
-  adminUser,
-  lateDelay,
-  lateDetail,
-  lateProduct,
-  onTimeProduct,
-  stages,
-} from '../test/fixtures'
+import { adminSession, adminUser, pmoSession } from '../test/fixtures'
 import { apiGet } from '../api/client'
 import { route, stubApi, type MockRoute } from '../test/mockApi'
 import { renderApp } from '../test/renderApp'
+
+const PROJECT: Project = {
+  id: 'pr-1',
+  code: 'PRJ-000001',
+  name: 'Solar Lantern Proto',
+  productName: 'Solar Lantern',
+  productCategory: null,
+  phase: 'PROTO',
+  status: 'ACTIVE',
+  protoCompletedAt: null,
+  completedAt: null,
+  createdById: adminUser.id,
+  createdBy: adminUser,
+  createdAt: '2026-09-01T00:00:00.000Z',
+}
 
 const loginRoute: MockRoute = {
   method: 'POST',
@@ -22,12 +30,7 @@ const loginRoute: MockRoute = {
       : { status: 401, body: { error: 'Invalid email or password' } },
 }
 
-const dataRoutes: MockRoute[] = [
-  route('GET', '/products', { body: [onTimeProduct, lateProduct] }),
-  route('GET', '/stages', { body: stages }),
-  route('GET', '/products/p-late', { body: lateDetail }),
-  route('GET', '/products/p-late/delay', { body: lateDelay }),
-]
+const dataRoutes: MockRoute[] = [route('GET', '/projects', { body: [PROJECT] })]
 
 function logIn(password = 'right') {
   fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@kyvera.dev' } })
@@ -36,14 +39,14 @@ function logIn(password = 'right') {
 }
 
 describe('login', () => {
-  it('logs in, goes to the products page, and sends the token from then on', async () => {
+  it('logs in, goes to the projects page, and sends the token from then on', async () => {
     const api = stubApi([loginRoute, ...dataRoutes])
     renderApp('/login')
 
     logIn()
 
-    await screen.findByText('Overdue Gadget')
-    expect(screen.getByRole('heading', { name: 'Products' })).toBeTruthy()
+    await screen.findByText('PRJ-000001')
+    expect(screen.getByRole('heading', { name: 'Projects' })).toBeTruthy()
     // The login request itself carries no token; everything after it does.
     expect(api.calls[0]).toMatchObject({ method: 'POST', path: '/auth/login', authorization: null })
     expect(api.calls[0].body).toEqual({ email: 'admin@kyvera.dev', password: 'right' })
@@ -57,7 +60,7 @@ describe('login', () => {
     renderApp('/login')
 
     logIn()
-    await screen.findByText('Overdue Gadget')
+    await screen.findByText('PRJ-000001')
 
     expect(localStorage.length).toBe(0)
     expect(sessionStorage.length).toBe(0)
@@ -96,13 +99,13 @@ describe('login', () => {
     stubApi(dataRoutes)
     renderApp('/login', { session: adminSession })
 
-    await screen.findByText('Overdue Gadget')
+    await screen.findByText('PRJ-000001')
     expect(screen.queryByRole('heading', { name: 'Log in' })).toBeNull()
   })
 })
 
 describe('protected routes', () => {
-  it.each([['/'], ['/delayed'], ['/products/p-late'], ['/no/such/page']])(
+  it.each([['/'], ['/projects'], ['/no/such/page']])(
     'sends a logged-out visitor from %s to the login page without calling the API',
     async (path) => {
       const api = stubApi([loginRoute, ...dataRoutes])
@@ -111,29 +114,36 @@ describe('protected routes', () => {
       await screen.findByRole('heading', { name: 'Log in' })
       expect(api.calls).toEqual([])
       // Not even the navigation is shown to someone who isn't logged in.
-      expect(screen.queryByRole('link', { name: 'Products' })).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Projects' })).toBeNull()
     },
   )
 
   it('takes you back to where you were headed once you log in', async () => {
-    const api = stubApi([loginRoute, ...dataRoutes])
-    renderApp('/products/p-late')
+    const api = stubApi([
+      loginRoute,
+      route('GET', '/projects/pr-1', { body: PROJECT }),
+      // Anchored to end: `/tech-packs/:id` is a real route too, and must not
+      // be intercepted by the *list* endpoint's mock.
+      route('GET', /^\/tech-packs$/, { body: [] }),
+      route('GET', /^\/proto-requests$/, { body: [] }),
+    ])
+    renderApp('/projects/pr-1')
 
     await screen.findByRole('heading', { name: 'Log in' })
     logIn()
 
-    await screen.findByRole('heading', { name: 'Overdue Gadget' })
-    // It fetched the deep-linked product with the token - never anonymously.
-    const productCall = api.calls.find((c) => c.path === '/products/p-late')
-    expect(productCall?.authorization).toBe('Bearer tok-1')
+    await screen.findByRole('heading', { name: 'Solar Lantern Proto' })
+    // It fetched the deep-linked project with the token - never anonymously.
+    const projectCall = api.calls.find((c) => c.path === '/projects/pr-1')
+    expect(projectCall?.authorization).toBe('Bearer tok-1')
   })
 })
 
 describe('logout', () => {
   it('clears the session: back to login, and no token on anything after', async () => {
     const api = stubApi([loginRoute, ...dataRoutes])
-    renderApp('/delayed', { session: adminSession })
-    await screen.findByText('Overdue Gadget')
+    renderApp('/projects', { session: adminSession })
+    await screen.findByText('PRJ-000001')
     const callsBefore = api.calls.length
 
     fireEvent.click(screen.getByRole('button', { name: 'Log out' }))
@@ -144,37 +154,37 @@ describe('logout', () => {
     expect(api.calls.length).toBe(callsBefore) // nothing more is fetched
 
     // The token itself is gone, not just hidden: any request made now goes out bare.
-    await apiGet('/products').catch(() => undefined)
-    expect(api.calls.at(-1)).toMatchObject({ path: '/products', authorization: null })
+    await apiGet('/projects').catch(() => undefined)
+    expect(api.calls.at(-1)).toMatchObject({ path: '/projects', authorization: null })
     const callsAfterProbe = api.calls.length
 
     // A later login starts from a clean slate: the token in use is the new one, not
     // the old one, and nothing sends the old one.
     logIn()
-    await screen.findByText('Overdue Gadget')
+    await screen.findByText('PRJ-000001')
     const after = api.calls.slice(callsAfterProbe)
     expect(after.some((c) => c.authorization === 'Bearer tok-admin')).toBe(false)
     expect(after.filter((c) => c.path !== '/auth/login').every((c) => c.authorization === 'Bearer tok-1')).toBe(true)
   })
 
   it('does not send the next person who logs in to the page the last one was on', async () => {
-    stubApi([loginRoute, ...dataRoutes])
-    renderApp('/delayed', { session: adminSession })
-    await screen.findByRole('heading', { name: 'Delayed products' })
+    stubApi([loginRoute, ...dataRoutes, route('GET', /^\/proto-requests$/, { body: [] })])
+    renderApp('/proto-requests', { session: adminSession })
+    await screen.findByRole('heading', { name: 'Proto Requests' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Log out' }))
     await screen.findByRole('heading', { name: 'Log in' })
     logIn()
 
-    await screen.findByRole('heading', { name: 'Products' })
-    expect(screen.queryByRole('heading', { name: 'Delayed products' })).toBeNull()
+    await screen.findByRole('heading', { name: 'Projects' })
+    expect(screen.queryByRole('heading', { name: 'Proto Requests' })).toBeNull()
   })
 })
 
 describe('an expired or invalid token (a 401 from the API)', () => {
   it('sends the user to login with an explanation, instead of a broken page', async () => {
     stubApi([
-      route('GET', '/products', { status: 401, body: { error: 'Token has expired' } }),
+      route('GET', '/projects', { status: 401, body: { error: 'Token has expired' } }),
       loginRoute,
     ])
     renderApp('/', { session: adminSession })
@@ -191,60 +201,41 @@ describe('an expired or invalid token (a 401 from the API)', () => {
     const api = stubApi([
       {
         method: 'GET',
-        path: '/products',
+        path: '/projects',
         respond: () =>
           expired
             ? { status: 401, body: { error: 'Token has expired' } }
-            : { body: [onTimeProduct, lateProduct] },
+            : { body: [PROJECT] },
       },
       loginRoute,
     ])
-    renderApp('/delayed', { session: adminSession })
+    renderApp('/projects', { session: adminSession })
     await screen.findByText('Your session expired. Please log in again.')
 
     expired = false
     logIn()
 
-    await screen.findByRole('heading', { name: 'Delayed products' })
+    await screen.findByRole('heading', { name: 'Projects' })
     // The login request did not carry the dead token, and the retry used the new one.
     const loginCall = api.calls.find((c) => c.path === '/auth/login')
     expect(loginCall?.authorization).toBeNull()
-    const lastProducts = api.calls.filter((c) => c.path === '/products').at(-1)
-    expect(lastProducts?.authorization).toBe('Bearer tok-1')
+    const lastProjects = api.calls.filter((c) => c.path === '/projects').at(-1)
+    expect(lastProjects?.authorization).toBe('Bearer tok-1')
     // The notice is gone once they are back in.
     expect(screen.queryByText(/session expired/i)).toBeNull()
   })
 
   it('also ends the session when a 401 comes back from an action, not just a page load', async () => {
     stubApi([
-      route('GET', '/products/p-assigned', {
-        body: {
-          view: 'assignee',
-          access: 'ASSIGNEE',
-          id: 'p-assigned',
-          name: 'Assigned Gadget',
-          description: null,
-          stages: [
-            {
-              assignmentId: 'a1',
-              stage: { id: 's2', name: 'Initial Design', expectedDurationDays: 7 },
-              readyAt: null,
-              readiness: { state: 'open_now', opensInDays: null },
-              delay: null,
-              history: [],
-              notes: [],
-            },
-          ],
-        },
-      }),
-      route('POST', '/products/p-assigned/assignments/a1/ready', {
-        status: 401,
-        body: { error: 'Token has expired' },
-      }),
+      route('GET', '/projects', { body: [] }),
+      route('POST', '/projects', { status: 401, body: { error: 'Token has expired' } }),
     ])
-    renderApp('/products/p-assigned', { session: adminSession })
+    renderApp('/projects', { session: pmoSession })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Mark my part ready' }))
+    await screen.findByText('No projects yet.')
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Name' } })
+    fireEvent.change(screen.getByLabelText('Product'), { target: { value: 'Product' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Log in' })).toBeTruthy())
     expect(screen.getByText('Your session expired. Please log in again.')).toBeTruthy()
