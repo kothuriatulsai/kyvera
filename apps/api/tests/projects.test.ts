@@ -78,8 +78,6 @@ describe("POST /projects", () => {
   // Table-driven so a role added later can't accidentally gain (or a typo
   // can't accidentally lose) access to creating a Project.
   it.each([
-    "MANAGER",
-    "ENGINEER",
     "FINANCE",
     "PRODUCT_DESIGNER",
     "ENGINEERING",

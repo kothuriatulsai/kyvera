@@ -1,19 +1,4 @@
 import argon2 from "argon2";
-import { ValidationError } from "./errors";
-
-const MIN_PASSWORD_LENGTH = 8;
-// Bounds the work a single request can make the server do; argon2 has no
-// 72-byte truncation like bcrypt, so this is about abuse, not correctness.
-const MAX_PASSWORD_LENGTH = 128;
-
-export function assertPasswordPolicy(password: string): void {
-  if (password.length < MIN_PASSWORD_LENGTH) {
-    throw new ValidationError(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
-  }
-  if (password.length > MAX_PASSWORD_LENGTH) {
-    throw new ValidationError(`password must be at most ${MAX_PASSWORD_LENGTH} characters`);
-  }
-}
 
 // argon2id with the library's defaults (memory-hard; OWASP's first choice).
 export function hashPassword(password: string): Promise<string> {

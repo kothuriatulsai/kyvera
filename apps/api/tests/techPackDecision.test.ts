@@ -185,8 +185,6 @@ describe("POST /tech-packs/:id/versions/:versionNumber/decision", () => {
   });
 
   it.each([
-    "MANAGER",
-    "ENGINEER",
     "FINANCE",
     "PMO",
     "PRODUCT_DESIGNER",

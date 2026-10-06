@@ -4,8 +4,8 @@ import { authenticate } from "../middleware/authenticate";
 
 export const authRoutes = Router();
 
-// Public: you can't be logged in before you've registered or logged in.
-authRoutes.post("/register", authController.register);
+// Public: accounts come from the seed for now (ADR 0010) - there is no
+// self-registration endpoint.
 authRoutes.post("/login", authController.login);
 
 authRoutes.get("/me", authenticate, authController.me);

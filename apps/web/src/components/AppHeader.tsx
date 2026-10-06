@@ -10,10 +10,6 @@ export function AppHeader() {
       {session && (
         <>
           <nav>
-            <NavLink to="/" end>
-              Products
-            </NavLink>
-            <NavLink to="/delayed">Delayed</NavLink>
             <NavLink to="/projects">Projects</NavLink>
             <NavLink to="/proto-requests">Proto Requests</NavLink>
           </nav>

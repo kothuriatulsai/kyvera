@@ -1,4 +1,4 @@
-import type { ProductStatus, ProjectPhase, ProjectStatus } from '@kyvera/shared-types'
+import type { ProjectPhase, ProjectStatus } from '@kyvera/shared-types'
 
 export function formatDate(iso: string | null): string {
   if (!iso) return '—'
@@ -7,16 +7,6 @@ export function formatDate(iso: string | null): string {
     month: 'short',
     day: 'numeric',
   })
-}
-
-export function formatDays(days: number): string {
-  return `${days} ${days === 1 ? 'day' : 'days'}`
-}
-
-export const STATUS_LABELS: Record<ProductStatus, string> = {
-  ON_TRACK: 'On track',
-  DELAYED: 'Delayed',
-  BLOCKED: 'Blocked',
 }
 
 export const PROJECT_PHASE_LABELS: Record<ProjectPhase, string> = {

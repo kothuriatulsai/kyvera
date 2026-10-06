@@ -13,10 +13,10 @@ test('pmo@ can log in and reach the Projects page', async ({ page }) => {
   await page.getByLabel('Password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Log in' }).click()
 
-  // Lands on Products (the default route) once logged in.
-  await expect(page.getByRole('heading', { name: 'Products' })).toBeVisible()
-
-  await page.getByRole('link', { name: 'Projects' }).click()
-
+  // Lands on Projects (the default route) once logged in.
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Proto Requests' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Proto Requests', exact: true })).toBeVisible()
 })

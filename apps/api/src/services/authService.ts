@@ -1,28 +1,15 @@
-import type { UserRole } from "@prisma/client";
 import * as userRepository from "../repositories/userRepository";
 import { UnauthorizedError } from "./errors";
 import { verifyAgainstDummy, verifyPassword } from "./passwordService";
 import { signAccessToken, type Actor } from "./tokenService";
-import { createUser, normalizeEmail } from "./userService";
-
-// Public registration must never be a way to mint a privileged account, so it
-// always creates the least-privileged role. Granting any other role is user
-// management, which ADR 0004 reserves for admins.
-const REGISTRATION_ROLE: UserRole = "ENGINEER";
-
-export interface RegisterInput {
-  name: string;
-  email: string;
-  password: string;
-}
 
 export interface LoginInput {
   email: string;
   password: string;
 }
 
-export function register(input: RegisterInput) {
-  return createUser({ ...input, role: REGISTRATION_ROLE });
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
 }
 
 export async function login(input: LoginInput) {
