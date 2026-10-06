@@ -12,6 +12,7 @@ export function AppHeader() {
           <nav>
             <NavLink to="/projects">Projects</NavLink>
             <NavLink to="/proto-requests">Proto Requests</NavLink>
+            {session.user.role === 'ADMIN' && <NavLink to="/users">Users</NavLink>}
           </nav>
           <div className="account">
             <span>

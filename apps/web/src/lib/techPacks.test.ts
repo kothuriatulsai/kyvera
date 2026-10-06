@@ -3,7 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { successorOf, sortTechPacks } from './techPacks'
 
 const PROJECT = { id: 'p1', code: 'PRJ-000001', name: 'Widget Project' }
-const USER = { id: 'u1', name: 'Deepa Designer', email: 'designer@kyvera.dev', role: 'PRODUCT_DESIGNER' as const, createdAt: '2026-09-01T00:00:00.000Z' }
+const USER = {
+  id: 'u1',
+  name: 'Deepa Designer',
+  email: 'designer@kyvera.dev',
+  role: 'PRODUCT_DESIGNER' as const,
+  isActive: true,
+  createdAt: '2026-09-01T00:00:00.000Z',
+}
 
 function techPack(overrides: Partial<TechPackListItem> = {}): TechPackListItem {
   return {

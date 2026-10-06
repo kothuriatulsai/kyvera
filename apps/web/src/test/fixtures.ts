@@ -8,6 +8,7 @@ export const adminUser: UserSummary = {
   name: 'Alex Admin',
   email: 'admin@kyvera.dev',
   role: 'ADMIN',
+  isActive: true,
   createdAt: SEPT_1,
 }
 
@@ -16,6 +17,7 @@ export const financeUser: UserSummary = {
   name: 'Fran Finance',
   email: 'finance@kyvera.dev',
   role: 'FINANCE',
+  isActive: true,
   createdAt: SEPT_1,
 }
 
@@ -32,6 +34,7 @@ export const pmoUser: UserSummary = {
   name: 'Priya PMO',
   email: 'pmo@kyvera.dev',
   role: 'PMO',
+  isActive: true,
   createdAt: SEPT_1,
 }
 
@@ -40,6 +43,7 @@ export const productDesignerUser: UserSummary = {
   name: 'Deepa Designer',
   email: 'designer@kyvera.dev',
   role: 'PRODUCT_DESIGNER',
+  isActive: true,
   createdAt: SEPT_1,
 }
 
@@ -48,6 +52,7 @@ export const engineeringUser: UserSummary = {
   name: 'Emre Engineering',
   email: 'engineering@kyvera.dev',
   role: 'ENGINEERING',
+  isActive: true,
   createdAt: SEPT_1,
 }
 
@@ -56,6 +61,7 @@ export const managementUser: UserSummary = {
   name: 'Mira Management',
   email: 'management@kyvera.dev',
   role: 'MANAGEMENT',
+  isActive: true,
   createdAt: SEPT_1,
 }
 
@@ -64,6 +70,7 @@ export const merchandiserUser: UserSummary = {
   name: 'Milo Merchandiser',
   email: 'merchandiser@kyvera.dev',
   role: 'MERCHANDISER',
+  isActive: true,
   createdAt: SEPT_1,
 }
 

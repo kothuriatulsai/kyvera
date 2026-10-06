@@ -67,7 +67,13 @@ describe('canCreateTechPack', () => {
   })
 })
 
-const USER = { id: 'u1', name: 'Someone', email: 'someone@kyvera.dev', createdAt: '2026-09-01T00:00:00.000Z' }
+const USER = {
+  id: 'u1',
+  name: 'Someone',
+  email: 'someone@kyvera.dev',
+  isActive: true,
+  createdAt: '2026-09-01T00:00:00.000Z',
+}
 
 function version(decision?: ApprovalDecision, confirmed = false): TechPackVersion {
   return {

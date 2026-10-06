@@ -18,7 +18,14 @@ const protoProject: Project = {
   protoCompletedAt: null,
   completedAt: null,
   createdById: 'u-pmo',
-  createdBy: { id: 'u-pmo', name: 'Priya PMO', email: 'pmo@kyvera.dev', role: 'PMO', createdAt: '2026-09-01T00:00:00.000Z' },
+  createdBy: {
+    id: 'u-pmo',
+    name: 'Priya PMO',
+    email: 'pmo@kyvera.dev',
+    role: 'PMO',
+    isActive: true,
+    createdAt: '2026-09-01T00:00:00.000Z',
+  },
   createdAt: '2026-09-01T00:00:00.000Z',
 }
 

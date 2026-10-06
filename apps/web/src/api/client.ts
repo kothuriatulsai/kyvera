@@ -108,6 +108,9 @@ export const apiGet = <T>(path: string) => apiRequest<T>(path)
 export const apiPost = <T>(path: string, body: unknown = {}) =>
   apiRequest<T>(path, { method: 'POST', body })
 
+export const apiPatch = <T>(path: string, body: unknown = {}) =>
+  apiRequest<T>(path, { method: 'PATCH', body })
+
 /**
  * POST a `FormData` body - file uploads. No `Content-Type` header is set: the
  * browser attaches its own `multipart/form-data` boundary, and setting one by
