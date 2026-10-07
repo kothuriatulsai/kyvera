@@ -18,6 +18,7 @@ export class ApiError extends Error {
 // `AuthProvider` is the only writer; everything else just calls the API.
 let accessToken: string | null = null
 let onSessionEnded: (() => void) | null = null
+let onForbidden: (() => void) | null = null
 
 export function setAccessToken(token: string | null) {
   accessToken = token
@@ -30,6 +31,16 @@ export function hasAccessToken(): boolean {
 /** Called when an authenticated request comes back 401 (expired or invalid token). */
 export function setSessionEndedHandler(handler: (() => void) | null) {
   onSessionEnded = handler
+}
+
+/**
+ * Called when an authenticated request comes back 403 - the caller's role or
+ * password-change requirement may have changed since the session started
+ * (an admin reset their password, or changed their role) and the UI should
+ * resync from `GET /auth/me` rather than just show the error.
+ */
+export function setForbiddenHandler(handler: (() => void) | null) {
+  onForbidden = handler
 }
 
 interface RawRequestOptions {
@@ -68,6 +79,7 @@ async function rawFetch(path: string, options: RawRequestOptions): Promise<Respo
     // The API's error middleware always responds with `{ error: string }`.
     const errorBody = (await res.json().catch(() => null)) as { error?: string } | null
     if (res.status === 401 && options.authenticated) onSessionEnded?.()
+    if (res.status === 403 && options.authenticated) onForbidden?.()
     throw new ApiError(res.status, errorBody?.error ?? `Request failed with status ${res.status}`)
   }
 

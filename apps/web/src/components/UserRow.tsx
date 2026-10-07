@@ -14,8 +14,20 @@ interface UserRowProps {
 export function UserRow({ user, onChanged }: UserRowProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [resetting, setResetting] = useState(false)
-  const [newPassword, setNewPassword] = useState('')
+
+  const [pendingRole, setPendingRole] = useState<UserRole>(user.role)
+  const [confirmingRole, setConfirmingRole] = useState(false)
+  // Keeps the select in sync if this row's role changed some other way
+  // (another admin, a different tab) while this one wasn't mid-edit -
+  // adjusted during render rather than in an effect, per React's own
+  // guidance for "reset state when a prop changes".
+  const [lastSeenRole, setLastSeenRole] = useState(user.role)
+  if (user.role !== lastSeenRole) {
+    setLastSeenRole(user.role)
+    setPendingRole(user.role)
+  }
+
+  const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null)
 
   async function run(action: () => Promise<UserSummary>) {
     setBusy(true)
@@ -30,11 +42,23 @@ export function UserRow({ user, onChanged }: UserRowProps) {
     }
   }
 
-  async function handleResetSubmit() {
-    if (newPassword === '') return
-    await run(() => resetPassword(user.id, { password: newPassword }))
-    setNewPassword('')
-    setResetting(false)
+  async function handleConfirmRoleChange() {
+    await run(() => changeUserRole(user.id, { role: pendingRole }))
+    setConfirmingRole(false)
+  }
+
+  async function handleReset() {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await resetPassword(user.id)
+      setTemporaryPassword(result.temporaryPassword)
+      await onChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -43,9 +67,9 @@ export function UserRow({ user, onChanged }: UserRowProps) {
       <td>{user.email}</td>
       <td>
         <select
-          value={user.role}
+          value={pendingRole}
           disabled={busy}
-          onChange={(e) => run(() => changeUserRole(user.id, { role: e.target.value as UserRole }))}
+          onChange={(e) => setPendingRole(e.target.value as UserRole)}
         >
           {USER_ROLES.map((role) => (
             <option key={role} value={role}>
@@ -53,6 +77,33 @@ export function UserRow({ user, onChanged }: UserRowProps) {
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          disabled={busy || pendingRole === user.role}
+          onClick={() => setConfirmingRole(true)}
+        >
+          Change
+        </button>
+        {confirmingRole && (
+          <span className="control">
+            <p>
+              Change {user.name}&rsquo;s role to {pendingRole}?
+            </p>
+            <button type="button" disabled={busy} onClick={handleConfirmRoleChange}>
+              Confirm
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setConfirmingRole(false)
+                setPendingRole(user.role)
+              }}
+            >
+              Cancel
+            </button>
+          </span>
+        )}
       </td>
       <td>{user.isActive ? 'Active' : 'Inactive'}</td>
       <td>{formatDate(user.createdAt)}</td>
@@ -66,23 +117,18 @@ export function UserRow({ user, onChanged }: UserRowProps) {
             Reactivate
           </button>
         )}
-        {resetting ? (
+        {temporaryPassword ? (
           <span className="control">
-            <input
-              type="text"
-              aria-label={`New password for ${user.name}`}
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-            />
-            <button type="button" disabled={busy || newPassword === ''} onClick={handleResetSubmit}>
-              Set password
-            </button>
-            <button type="button" disabled={busy} onClick={() => { setResetting(false); setNewPassword('') }}>
-              Cancel
+            <p>
+              Temporary password: <code>{temporaryPassword}</code>
+            </p>
+            <p className="muted">Make a note of it now - it won&rsquo;t be shown again.</p>
+            <button type="button" onClick={() => setTemporaryPassword(null)}>
+              Done
             </button>
           </span>
         ) : (
-          <button type="button" disabled={busy} onClick={() => setResetting(true)}>
+          <button type="button" disabled={busy} onClick={handleReset}>
             Reset password
           </button>
         )}

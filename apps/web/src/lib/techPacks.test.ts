@@ -9,6 +9,7 @@ const USER = {
   email: 'designer@kyvera.dev',
   role: 'PRODUCT_DESIGNER' as const,
   isActive: true,
+  mustChangePassword: false,
   createdAt: '2026-09-01T00:00:00.000Z',
 }
 

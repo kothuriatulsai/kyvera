@@ -72,6 +72,7 @@ const USER = {
   name: 'Someone',
   email: 'someone@kyvera.dev',
   isActive: true,
+  mustChangePassword: false,
   createdAt: '2026-09-01T00:00:00.000Z',
 }
 

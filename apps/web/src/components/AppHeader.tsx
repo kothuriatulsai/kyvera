@@ -18,6 +18,7 @@ export function AppHeader() {
             <span>
               {session.user.name} <span className="muted">({session.user.role.toLowerCase()})</span>
             </span>
+            <NavLink to="/account">My account</NavLink>
             <button type="button" className="link-button" onClick={logout}>
               Log out
             </button>

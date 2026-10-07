@@ -11,6 +11,7 @@ const ADMIN_USER: UserSummary = {
   email: 'admin@kyvera.dev',
   role: 'ADMIN',
   isActive: true,
+  mustChangePassword: false,
   createdAt: '2026-09-01T00:00:00.000Z',
 }
 
@@ -20,6 +21,7 @@ const FINANCE_USER: UserSummary = {
   email: 'finance@kyvera.dev',
   role: 'FINANCE',
   isActive: true,
+  mustChangePassword: false,
   createdAt: '2026-09-02T00:00:00.000Z',
 }
 
@@ -40,21 +42,17 @@ describe('GET /users', () => {
     await screen.findByText('No users yet.')
   })
 
-  it('surfaces the API error for a non-admin instead of showing the table', async () => {
-    stubApi([
-      route('GET', '/users', {
-        status: 403,
-        body: { error: 'This action requires one of these roles: ADMIN' },
-      }),
-    ])
+  it('is not reachable by a non-admin - the route renders as not found, and never calls the API', async () => {
+    const api = stubApi([route('GET', '/users', { body: [ADMIN_USER, FINANCE_USER] })])
     renderApp('/users', { session: financeSession })
 
-    expect((await screen.findByRole('alert')).textContent).toMatch(/requires one of these roles/i)
+    await screen.findByText('Page not found.')
+    expect(api.calls).toEqual([])
   })
 })
 
 describe('New user form', () => {
-  it('creates a user and the list reflects it', async () => {
+  it('creates a user with no password field, reveals the generated one, and the list reflects it', async () => {
     let users: UserSummary[] = [ADMIN_USER]
     const api = stubApi([
       { method: 'GET', path: '/users', respond: () => ({ body: users }) },
@@ -62,47 +60,48 @@ describe('New user form', () => {
         method: 'POST',
         path: '/users',
         respond: (request) => {
-          const body = request.body as {
-            name: string
-            email: string
-            role: UserSummary['role']
-            temporaryPassword: string
-          }
+          const body = request.body as { name: string; email: string; role: UserSummary['role'] }
           const created: UserSummary = {
             id: 'u-new',
             name: body.name,
             email: body.email,
             role: body.role,
             isActive: true,
+            mustChangePassword: true,
             createdAt: '2026-10-07T00:00:00.000Z',
           }
           users = [...users, created]
-          return { status: 201, body: created }
+          return { status: 201, body: { user: created, temporaryPassword: 'generated-xyz789' } }
         },
       },
     ])
     renderApp('/users', { session: adminSession })
     await screen.findByText('Alex Admin')
 
+    expect(screen.queryByLabelText(/temporary password/i)).toBeNull()
+
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'New Person' } })
     fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'new@kyvera.dev' } })
-    fireEvent.change(screen.getByLabelText('Temporary password'), { target: { value: 'a-temp-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create user' }))
 
-    await screen.findByText('New Person')
-    expect(api.calls.find((c) => c.path === '/users' && c.method === 'POST')?.body).toMatchObject({
+    await screen.findByText('New Person') // the table row
+    await screen.findByText('generated-xyz789') // the one-time reveal
+    expect(api.calls.find((c) => c.path === '/users' && c.method === 'POST')?.body).toEqual({
       name: 'New Person',
       email: 'new@kyvera.dev',
       role: 'FINANCE',
-      temporaryPassword: 'a-temp-password',
     })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByText('generated-xyz789')).toBeNull()
+    expect((screen.getByLabelText('Name') as HTMLInputElement).value).toBe('') // back to a fresh form
   })
 })
 
 describe('Role control', () => {
-  it("changes a user's role", async () => {
+  it('requires an explicit Change + Confirm, and does nothing on select alone', async () => {
     let users: UserSummary[] = [ADMIN_USER, FINANCE_USER]
-    stubApi([
+    const api = stubApi([
       { method: 'GET', path: '/users', respond: () => ({ body: users }) },
       {
         method: 'PATCH',
@@ -119,8 +118,31 @@ describe('Role control', () => {
     const select = within(row).getByRole('combobox') as HTMLSelectElement
 
     fireEvent.change(select, { target: { value: 'MANAGEMENT' } })
+    // Selecting alone must not submit anything.
+    expect(api.calls.some((c) => c.method === 'PATCH')).toBe(false)
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Change' }))
+    expect(api.calls.some((c) => c.method === 'PATCH')).toBe(false) // still waiting on the confirm
+    expect(row.textContent).toMatch(/Change Fran Finance.s role to MANAGEMENT\?/)
+
+    fireEvent.click(within(row).getByRole('button', { name: 'Confirm' }))
 
     await waitFor(() => expect(select.value).toBe('MANAGEMENT'))
+    expect(api.calls.find((c) => c.method === 'PATCH')?.body).toEqual({ role: 'MANAGEMENT' })
+  })
+
+  it('cancelling leaves the role unchanged and sends no request', async () => {
+    const api = stubApi([route('GET', '/users', { body: [ADMIN_USER, FINANCE_USER] })])
+    renderApp('/users', { session: adminSession })
+    const row = (await screen.findByText('Fran Finance')).closest('tr')!
+    const select = within(row).getByRole('combobox') as HTMLSelectElement
+
+    fireEvent.change(select, { target: { value: 'MANAGEMENT' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Change' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Cancel' }))
+
+    expect(select.value).toBe('FINANCE')
+    expect(api.calls.some((c) => c.method === 'PATCH')).toBe(false)
   })
 })
 
@@ -162,39 +184,26 @@ describe('Deactivate / reactivate controls', () => {
 })
 
 describe('Reset password control', () => {
-  it('sets a new password and hides the field again', async () => {
+  it('reveals the generated temporary password, with no password input to fill in', async () => {
     const api = stubApi([
       route('GET', '/users', { body: [FINANCE_USER] }),
-      route('POST', '/users/u-finance/reset-password', { body: FINANCE_USER }),
+      route('POST', '/users/u-finance/reset-password', {
+        body: { user: { ...FINANCE_USER, mustChangePassword: true }, temporaryPassword: 'generated-abc123' },
+      }),
     ])
     renderApp('/users', { session: adminSession })
     await screen.findByText('Fran Finance')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
-    fireEvent.change(screen.getByLabelText('New password for Fran Finance'), {
-      target: { value: 'a-new-password' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Set password' }))
-
-    await waitFor(() => expect(screen.queryByLabelText('New password for Fran Finance')).toBeNull())
-    expect(
-      api.calls.find((c) => c.method === 'POST' && c.path === '/users/u-finance/reset-password')?.body,
-    ).toEqual({ password: 'a-new-password' })
-  })
-
-  it('can be cancelled without sending a request', async () => {
-    const api = stubApi([route('GET', '/users', { body: [FINANCE_USER] })])
-    renderApp('/users', { session: adminSession })
-    await screen.findByText('Fran Finance')
+    expect(screen.queryByLabelText(/new password/i)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
-    fireEvent.change(screen.getByLabelText('New password for Fran Finance'), {
-      target: { value: 'a-new-password' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
 
-    expect(screen.queryByLabelText('New password for Fran Finance')).toBeNull()
-    expect(api.calls.some((c) => c.method === 'POST')).toBe(false)
+    await screen.findByText('generated-abc123')
+    expect(api.calls.find((c) => c.method === 'POST' && c.path === '/users/u-finance/reset-password')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByText('generated-abc123')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Reset password' })).toBeTruthy()
   })
 })
 
