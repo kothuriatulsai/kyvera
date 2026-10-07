@@ -2,7 +2,7 @@ import { Prisma, type UserRole } from "@prisma/client";
 import * as userRepository from "../repositories/userRepository";
 import { normalizeEmail } from "./authService";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
-import { assertPasswordPolicy, hashPassword } from "./passwordService";
+import { generateTemporaryPassword, hashPassword } from "./passwordService";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 254;
@@ -11,33 +11,38 @@ export interface CreateUserInput {
   name: string;
   email: string;
   role: UserRole;
-  temporaryPassword: string;
 }
 
 /**
  * ADR 0010/0011: the only way a user row gets created now. Admin-only -
- * enforced by the route, not here. Stamps passwordChangedAt at creation (not
- * just on reset), so every account's "is this token older than the last
- * known password" check has a real value to compare against, never null
- * except for the handful of users seeded before this feature existed.
+ * enforced by the route, not here. Generates a one-time temporary password
+ * the same way `resetPassword` does, rather than taking one from the admin -
+ * an admin-chosen password would mean the admin knows a password the new
+ * user might reuse elsewhere. Sets `mustChangePassword`, same as a reset,
+ * and stamps `passwordChangedAt` at creation (not just on reset), so every
+ * account's "is this token older than the last known password" check has a
+ * real value to compare against, never null except for the handful of users
+ * seeded before this feature existed.
  */
 export async function createUser(input: CreateUserInput) {
   const email = normalizeEmail(input.email);
   if (email.length > MAX_EMAIL_LENGTH || !EMAIL_PATTERN.test(email)) {
     throw new ValidationError("email must be a valid email address");
   }
-  assertPasswordPolicy(input.temporaryPassword);
 
-  const passwordHash = await hashPassword(input.temporaryPassword);
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashPassword(temporaryPassword);
 
   try {
-    return await userRepository.create({
+    const user = await userRepository.create({
       name: input.name.trim(),
       email,
       role: input.role,
       passwordHash,
       passwordChangedAt: new Date(),
+      mustChangePassword: true,
     });
+    return { user, temporaryPassword };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       throw new ConflictError("A user with that email already exists");
@@ -99,9 +104,18 @@ export async function reactivateUser(targetId: string) {
   return userRepository.setActive(targetId, true);
 }
 
-export async function resetPassword(targetId: string, newPassword: string) {
+/**
+ * Generates a one-time temporary password (ADR 0011) rather than taking one
+ * from the admin - an admin-chosen password would mean the admin knows the
+ * user's real password, not just a placeholder they're forced to replace.
+ * Returned once, here, in `temporaryPassword`; nothing persists it in
+ * plaintext anywhere, and there's no way to retrieve it again after this
+ * call returns - only another reset.
+ */
+export async function resetPassword(targetId: string) {
   await requireUser(targetId);
-  assertPasswordPolicy(newPassword);
-  const passwordHash = await hashPassword(newPassword);
-  return userRepository.updatePassword(targetId, passwordHash);
+  const temporaryPassword = generateTemporaryPassword();
+  const passwordHash = await hashPassword(temporaryPassword);
+  const user = await userRepository.updatePassword(targetId, passwordHash, true);
+  return { user, temporaryPassword };
 }

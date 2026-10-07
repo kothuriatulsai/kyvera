@@ -28,22 +28,29 @@ enum ApprovalDecision {
 }
 
 model User {
-  id                String    @id @default(uuid()) @db.Uuid
-  name              String
-  email             String    @unique
-  role              UserRole
-  passwordHash      String    @map("password_hash")
+  id                 String    @id @default(uuid()) @db.Uuid
+  name               String
+  email              String    @unique
+  role               UserRole
+  passwordHash       String    @map("password_hash")
   // Accounts are admin-managed only (ADR 0010/0011): deactivated, never hard
   // deleted - every SOP relation to User is onDelete: Restrict, so a real
   // delete would be blocked the moment the user had created/confirmed/
   // approved anything anyway.
-  isActive          Boolean   @default(true) @map("is_active")
-  // Set on creation and on every admin password reset (ADR 0011). Null means
-  // "never reset since creation" (pre-existing seeded rows). authenticate
-  // rejects a token whose `iat` predates this, so a reset invalidates every
-  // session the old password was logged into - not just future logins.
-  passwordChangedAt DateTime? @map("password_changed_at")
-  createdAt         DateTime  @default(now()) @map("created_at")
+  isActive           Boolean   @default(true) @map("is_active")
+  // Set on creation and on every password change, self-service or admin
+  // reset (ADR 0011). Null means "never changed since creation" (pre-existing
+  // seeded rows). authenticate rejects a token issued before this, so a
+  // change invalidates every session the old password was logged into - not
+  // just future logins.
+  passwordChangedAt  DateTime? @map("password_changed_at")
+  // Set by an admin password reset, cleared by the user's own next
+  // successful change-password (ADR 0011). While true, every endpoint except
+  // GET /auth/me and POST /auth/change-password returns 403 - a reset issues
+  // a one-time temporary password, not a password an admin chose, so the
+  // user must be the one to pick a real one before doing anything else.
+  mustChangePassword Boolean   @default(false) @map("must_change_password")
+  createdAt          DateTime  @default(now()) @map("created_at")
 
   projectsCreated          Project[]              @relation("ProjectCreator")
   techPacksCreated         TechPack[]             @relation("TechPackCreator")

@@ -4,5 +4,7 @@ declare module "express-serve-static-core" {
   interface Request {
     /** Set by the `authenticate` middleware once a token has been verified. */
     actor?: Actor;
+    /** Set alongside `actor` (ADR 0011); read by `requirePasswordChanged`. */
+    mustChangePassword?: boolean;
   }
 }

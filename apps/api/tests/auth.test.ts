@@ -125,6 +125,7 @@ describe("authentication on protected routes", () => {
   // Table-driven so a route added later can't quietly be left open.
   it.each([
     ["GET", "/auth/me"],
+    ["POST", "/auth/change-password"],
     ["GET", "/projects"],
     ["POST", "/projects"],
     ["GET", "/projects/abc"],

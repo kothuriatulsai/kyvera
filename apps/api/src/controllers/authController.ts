@@ -17,3 +17,14 @@ export const me = asyncHandler(async (req: Request, res: Response) => {
   const user = await authService.getCurrentUser(requireActor(req));
   res.json(user);
 });
+
+export const changePassword = asyncHandler(async (req: Request, res: Response) => {
+  const actor = requireActor(req);
+  const body = req.body as Record<string, unknown>;
+  const user = await authService.changePassword(
+    actor.id,
+    requireString(body, "currentPassword"),
+    requireString(body, "newPassword"),
+  );
+  res.json(user);
+});

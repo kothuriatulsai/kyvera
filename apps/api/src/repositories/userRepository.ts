@@ -18,13 +18,14 @@ export function findSafeById(id: string, db: Db = prisma) {
 }
 
 // Exactly what `authenticate` needs to decide whether a verified token is
-// still good: the role (for req.actor), isActive, and passwordChangedAt (to
-// reject a token issued before the most recent reset). Deliberately not
+// still good: the role (for req.actor), isActive, passwordChangedAt (to
+// reject a token issued before the most recent change), and mustChangePassword
+// (to gate everything but /auth/me and change-password). Deliberately not
 // `safeUserSelect` - passwordChangedAt isn't meant to appear in any response.
 export function findAuthSnapshotById(id: string, db: Db = prisma) {
   return db.user.findUnique({
     where: { id },
-    select: { id: true, role: true, isActive: true, passwordChangedAt: true },
+    select: { id: true, role: true, isActive: true, passwordChangedAt: true, mustChangePassword: true },
   });
 }
 
@@ -46,11 +47,18 @@ export function setActive(id: string, isActive: boolean, db: Db = prisma) {
 
 // The one place a password changes after creation - always stamps
 // passwordChangedAt alongside the hash (ADR 0011), so nothing can update one
-// without the other.
-export function updatePassword(id: string, passwordHash: string, db: Db = prisma) {
+// without the other. `mustChangePassword` is explicit at every call site
+// (true for an admin reset, false for the user's own change-password) rather
+// than defaulted, so it's never left as whatever it happened to be before.
+export function updatePassword(
+  id: string,
+  passwordHash: string,
+  mustChangePassword: boolean,
+  db: Db = prisma,
+) {
   return db.user.update({
     where: { id },
-    data: { passwordHash, passwordChangedAt: new Date() },
+    data: { passwordHash, passwordChangedAt: new Date(), mustChangePassword },
     select: safeUserSelect,
   });
 }

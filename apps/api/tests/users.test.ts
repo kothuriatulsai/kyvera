@@ -25,17 +25,30 @@ function uniqueEmail(prefix = "user-mgmt") {
   return email;
 }
 
-/** Creates a target user through the real endpoint, so it has a real,
- * known temporary password - the fixture tests actually log in with. */
+const INITIAL_PASSWORD = "initial-password";
+
+/**
+ * Creates a target user through the real endpoint and immediately completes
+ * its forced first password change (ADR 0011 - creation now generates a
+ * temporary password and sets mustChangePassword, same as a reset), so
+ * every other test gets a normal, usable account with a password it knows -
+ * `INITIAL_PASSWORD` - instead of having to deal with the forced-change step
+ * itself. Mirrors the real flow: an admin-created account starts in exactly
+ * this state.
+ */
 async function createUserViaApi(admin: TestUser) {
   const email = uniqueEmail();
-  const res = await admin.agent.post("/users").send({
-    name: "Target User",
-    email,
-    role: "FINANCE",
-    temporaryPassword: "initial-password",
-  });
-  return { email, id: res.body.id as string };
+  const created = await admin.agent.post("/users").send({ name: "Target User", email, role: "FINANCE" });
+  const id = created.body.user.id as string;
+  const temporaryPassword = created.body.temporaryPassword as string;
+
+  const login = await request(app).post("/auth/login").send({ email, password: temporaryPassword });
+  await request(app)
+    .post("/auth/change-password")
+    .set("Authorization", `Bearer ${login.body.token}`)
+    .send({ currentPassword: temporaryPassword, newPassword: INITIAL_PASSWORD });
+
+  return { email, id };
 }
 
 afterAll(async () => {
@@ -72,45 +85,48 @@ describe("GET /users", () => {
 });
 
 describe("POST /users", () => {
-  it("creates a user with a hashed temporary password and isActive true", async () => {
+  it("generates a temporary password, sets mustChangePassword, and never takes one from the admin", async () => {
     const { agent } = await createTestUser(app, "ADMIN");
     const email = uniqueEmail();
 
-    const res = await agent.post("/users").send({
+    const res = await agent.post("/users").send({ name: "Fresh User", email, role: "MERCHANDISER" });
+
+    expect(res.status).toBe(201);
+    expect(typeof res.body.temporaryPassword).toBe("string");
+    expect(res.body.temporaryPassword.length).toBeGreaterThanOrEqual(8);
+    expect(res.body.user).toMatchObject({
       name: "Fresh User",
       email,
       role: "MERCHANDISER",
-      temporaryPassword: "a-temporary-password",
+      isActive: true,
+      mustChangePassword: true,
     });
-
-    expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ name: "Fresh User", email, role: "MERCHANDISER", isActive: true });
-    expect(res.body.passwordHash).toBeUndefined();
+    expect(res.body.user.passwordHash).toBeUndefined();
 
     const stored = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(stored.passwordHash).toMatch(/^\$argon2id\$/);
     expect(stored.passwordChangedAt).not.toBeNull();
+
+    // The generated password actually works.
+    const login = await request(app)
+      .post("/auth/login")
+      .send({ email, password: res.body.temporaryPassword as string });
+    expect(login.status).toBe(200);
   });
 
   it("rejects a duplicate email with 409", async () => {
     const { agent } = await createTestUser(app, "ADMIN");
     const email = uniqueEmail();
-    const first = await agent
-      .post("/users")
-      .send({ name: "First", email, role: "FINANCE", temporaryPassword: "a-temporary-password" });
+    const first = await agent.post("/users").send({ name: "First", email, role: "FINANCE" });
     expect(first.status).toBe(201);
 
-    const second = await agent
-      .post("/users")
-      .send({ name: "Second", email, role: "FINANCE", temporaryPassword: "another-password" });
+    const second = await agent.post("/users").send({ name: "Second", email, role: "FINANCE" });
 
     expect(second.status).toBe(409);
   });
 
   it.each([
     ["an invalid email", { email: "not-an-email" }],
-    ["a too-short password", { temporaryPassword: "short" }],
-    ["a too-long password", { temporaryPassword: "x".repeat(129) }],
     ["a missing name", { name: "" }],
     ["an unknown role", { role: "SUPERUSER" }],
   ])("rejects %s with 400", async (_label, overrides) => {
@@ -119,7 +135,6 @@ describe("POST /users", () => {
       name: "Test",
       email: uniqueEmail(),
       role: "FINANCE",
-      temporaryPassword: "a-temporary-password",
       ...overrides,
     });
     expect(res.status).toBe(400);
@@ -128,9 +143,7 @@ describe("POST /users", () => {
   it.each(NON_ADMIN_ROLES)("forbids %s", async (role) => {
     const { agent } = await createTestUser(app, role);
 
-    const res = await agent
-      .post("/users")
-      .send({ name: "X", email: uniqueEmail(), role: "FINANCE", temporaryPassword: "a-temporary-password" });
+    const res = await agent.post("/users").send({ name: "X", email: uniqueEmail(), role: "FINANCE" });
 
     expect(res.status).toBe(403);
   });
@@ -243,24 +256,36 @@ describe("POST /users/:id/reactivate", () => {
 });
 
 describe("POST /users/:id/reset-password", () => {
-  it("rejects a weak new password with 400", async () => {
+  it("generates a one-time temporary password and sets mustChangePassword", async () => {
     const admin = await createTestUser(app, "ADMIN");
     const target = await createUserViaApi(admin);
 
-    const res = await admin.agent.post(`/users/${target.id}/reset-password`).send({ password: "short" });
+    const res = await admin.agent.post(`/users/${target.id}/reset-password`);
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
+    expect(typeof res.body.temporaryPassword).toBe("string");
+    expect(res.body.temporaryPassword.length).toBeGreaterThanOrEqual(8);
+    expect(res.body.user).toMatchObject({ id: target.id, mustChangePassword: true });
+    expect(res.body.user.passwordHash).toBeUndefined();
+  });
+
+  it("404s an unknown user", async () => {
+    const { agent } = await createTestUser(app, "ADMIN");
+
+    const res = await agent.post(`/users/${randomUUID()}/reset-password`);
+
+    expect(res.status).toBe(404);
   });
 
   it.each(NON_ADMIN_ROLES)("forbids %s", async (role) => {
     const { agent } = await createTestUser(app, role);
 
-    const res = await agent.post(`/users/${randomUUID()}/reset-password`).send({ password: "a-new-password" });
+    const res = await agent.post(`/users/${randomUUID()}/reset-password`);
 
     expect(res.status).toBe(403);
   });
 
-  it("invalidates the user's existing token, and the new password works for a fresh login", async () => {
+  it("invalidates the user's existing token, and the temporary password logs in", async () => {
     const admin = await createTestUser(app, "ADMIN");
     const target = await createUserViaApi(admin);
 
@@ -273,10 +298,9 @@ describe("POST /users/:id/reset-password", () => {
     const stillWorks = await request(app).get("/auth/me").set("Authorization", `Bearer ${oldToken}`);
     expect(stillWorks.status).toBe(200);
 
-    const reset = await admin.agent
-      .post(`/users/${target.id}/reset-password`)
-      .send({ password: "a-brand-new-password" });
+    const reset = await admin.agent.post(`/users/${target.id}/reset-password`);
     expect(reset.status).toBe(200);
+    const temporaryPassword = reset.body.temporaryPassword as string;
 
     const rejected = await request(app).get("/auth/me").set("Authorization", `Bearer ${oldToken}`);
     expect(rejected.status).toBe(401);
@@ -286,15 +310,104 @@ describe("POST /users/:id/reset-password", () => {
       .send({ email: target.email, password: "initial-password" });
     expect(oldPasswordFails.status).toBe(401);
 
-    const newLogin = await request(app)
-      .post("/auth/login")
-      .send({ email: target.email, password: "a-brand-new-password" });
+    const newLogin = await request(app).post("/auth/login").send({ email: target.email, password: temporaryPassword });
     expect(newLogin.status).toBe(200);
+    expect(newLogin.body.user.mustChangePassword).toBe(true);
+  });
+});
 
-    const worksNow = await request(app)
-      .get("/auth/me")
-      .set("Authorization", `Bearer ${newLogin.body.token}`);
-    expect(worksNow.status).toBe(200);
+describe("a user with mustChangePassword set", () => {
+  async function resetAndLogIn(admin: TestUser, target: { email: string; id: string }) {
+    const reset = await admin.agent.post(`/users/${target.id}/reset-password`);
+    const temporaryPassword = reset.body.temporaryPassword as string;
+    const login = await request(app).post("/auth/login").send({ email: target.email, password: temporaryPassword });
+    return { token: login.body.token as string, temporaryPassword };
+  }
+
+  it("is blocked from an ordinary endpoint, but not from /auth/me or change-password", async () => {
+    const admin = await createTestUser(app, "ADMIN");
+    const target = await createUserViaApi(admin);
+    const { token, temporaryPassword } = await resetAndLogIn(admin, target);
+
+    const projects = await request(app).get("/projects").set("Authorization", `Bearer ${token}`);
+    expect(projects.status).toBe(403);
+    expect(projects.body.error).toMatch(/change your password/i);
+
+    const me = await request(app).get("/auth/me").set("Authorization", `Bearer ${token}`);
+    expect(me.status).toBe(200);
+
+    // The real temporary password (not a placeholder) proves this request
+    // reached the handler at all - if it were blocked by the same gate as
+    // /projects above, it would 403 regardless of the body.
+    const changed = await request(app)
+      .post("/auth/change-password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ currentPassword: temporaryPassword, newPassword: "a-new-real-password" });
+    expect(changed.status).toBe(200);
+  });
+
+  it("can change their own password, which clears mustChangePassword and unblocks everything else", async () => {
+    const admin = await createTestUser(app, "ADMIN");
+    const target = await createUserViaApi(admin);
+    const reset = await admin.agent.post(`/users/${target.id}/reset-password`);
+    const temporaryPassword = reset.body.temporaryPassword as string;
+    const login = await request(app)
+      .post("/auth/login")
+      .send({ email: target.email, password: temporaryPassword });
+    const token = login.body.token as string;
+
+    const changed = await request(app)
+      .post("/auth/change-password")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ currentPassword: temporaryPassword, newPassword: "a-new-real-password" });
+
+    expect(changed.status).toBe(200);
+    expect(changed.body.mustChangePassword).toBe(false);
+
+    // The change-password call itself issued no new token - the old one (now
+    // past its own passwordChangedAt stamp) must be rejected like any other
+    // post-reset token, and a fresh login is required.
+    const staleToken = await request(app).get("/projects").set("Authorization", `Bearer ${token}`);
+    expect(staleToken.status).toBe(401);
+
+    const freshLogin = await request(app)
+      .post("/auth/login")
+      .send({ email: target.email, password: "a-new-real-password" });
+    expect(freshLogin.status).toBe(200);
+    expect(freshLogin.body.user.mustChangePassword).toBe(false);
+
+    const projects = await request(app)
+      .get("/projects")
+      .set("Authorization", `Bearer ${freshLogin.body.token}`);
+    expect(projects.status).toBe(200);
+  });
+});
+
+describe("POST /auth/change-password", () => {
+  it("rejects the wrong current password with 403", async () => {
+    const { agent } = await createTestUser(app, "FINANCE");
+
+    const res = await agent.post("/auth/change-password").send({
+      currentPassword: "definitely-not-it",
+      newPassword: "a-new-real-password",
+    });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("rejects a weak new password with 400", async () => {
+    const admin = await createTestUser(app, "ADMIN");
+    const target = await createUserViaApi(admin);
+    const login = await request(app)
+      .post("/auth/login")
+      .send({ email: target.email, password: "initial-password" });
+
+    const res = await request(app)
+      .post("/auth/change-password")
+      .set("Authorization", `Bearer ${login.body.token}`)
+      .send({ currentPassword: "initial-password", newPassword: "short" });
+
+    expect(res.status).toBe(400);
   });
 });
 

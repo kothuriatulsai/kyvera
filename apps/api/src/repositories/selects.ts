@@ -9,5 +9,8 @@ export const safeUserSelect = {
   email: true,
   role: true,
   isActive: true,
+  // The web app needs to know this to force the change-password screen
+  // (ADR 0011) - unlike passwordChangedAt, which is purely internal.
+  mustChangePassword: true,
   createdAt: true,
 } satisfies Prisma.UserSelect;

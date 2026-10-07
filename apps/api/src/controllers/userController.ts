@@ -20,13 +20,12 @@ export const listUsers = asyncHandler(async (_req: Request, res: Response) => {
 
 export const createUser = asyncHandler(async (req: Request, res: Response) => {
   const body = req.body as Record<string, unknown>;
-  const user = await userManagementService.createUser({
+  const { user, temporaryPassword } = await userManagementService.createUser({
     name: requireString(body, "name"),
     email: requireString(body, "email"),
     role: roleFrom(body),
-    temporaryPassword: requireString(body, "temporaryPassword"),
   });
-  res.status(201).json(user);
+  res.status(201).json({ user, temporaryPassword });
 });
 
 export const changeRole = asyncHandler(async (req: Request, res: Response) => {
@@ -47,7 +46,6 @@ export const reactivateUser = asyncHandler(async (req: Request, res: Response) =
 });
 
 export const resetPassword = asyncHandler(async (req: Request, res: Response) => {
-  const body = req.body as Record<string, unknown>;
-  const user = await userManagementService.resetPassword(req.params.id, requireString(body, "password"));
-  res.json(user);
+  const { user, temporaryPassword } = await userManagementService.resetPassword(req.params.id);
+  res.json({ user, temporaryPassword });
 });
