@@ -12,11 +12,13 @@ export function AppHeader() {
           <nav>
             <NavLink to="/projects">Projects</NavLink>
             <NavLink to="/proto-requests">Proto Requests</NavLink>
+            {session.user.role === 'ADMIN' && <NavLink to="/users">Users</NavLink>}
           </nav>
           <div className="account">
             <span>
               {session.user.name} <span className="muted">({session.user.role.toLowerCase()})</span>
             </span>
+            <NavLink to="/account">My account</NavLink>
             <button type="button" className="link-button" onClick={logout}>
               Log out
             </button>

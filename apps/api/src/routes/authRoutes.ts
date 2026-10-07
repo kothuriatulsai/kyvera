@@ -9,3 +9,6 @@ export const authRoutes = Router();
 authRoutes.post("/login", authController.login);
 
 authRoutes.get("/me", authenticate, authController.me);
+// Exempt from `requirePasswordChanged` (ADR 0011) by never passing through
+// it: authenticated directly, right here, same as /me above.
+authRoutes.post("/change-password", authenticate, authController.changePassword);

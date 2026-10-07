@@ -1,5 +1,5 @@
-import type { LoginRequest, LoginResponse } from '@kyvera/shared-types'
-import { apiRequest } from './client'
+import type { ChangePasswordRequest, LoginRequest, LoginResponse, UserSummary } from '@kyvera/shared-types'
+import { apiGet, apiPost, apiRequest } from './client'
 
 export const login = (credentials: LoginRequest) =>
   apiRequest<LoginResponse>('/auth/login', {
@@ -7,3 +7,8 @@ export const login = (credentials: LoginRequest) =>
     body: credentials,
     authenticated: false,
   })
+
+export const fetchMe = () => apiGet<UserSummary>('/auth/me')
+
+export const changePassword = (body: ChangePasswordRequest) =>
+  apiPost<UserSummary>('/auth/change-password', body)

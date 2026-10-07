@@ -16,5 +16,11 @@ export function RequireAuth() {
     const from = notice === 'signed-out' ? undefined : location
     return <Navigate to="/login" replace state={{ from }} />
   }
+  // An admin reset their password (ADR 0011): every endpoint but /auth/me and
+  // change-password already 403s server-side, so there is nothing to show
+  // anywhere else until they set a real one.
+  if (session.user.mustChangePassword && location.pathname !== '/account') {
+    return <Navigate to="/account" replace />
+  }
   return <Outlet />
 }

@@ -6,20 +6,29 @@ export const APPROVAL_DECISIONS = ["APPROVED", "REJECTED"] as const;
 export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 
 /** Final role set (ADR 0010). */
-export type UserRole =
-  | "ADMIN"
-  | "FINANCE"
-  | "PMO"
-  | "PRODUCT_DESIGNER"
-  | "ENGINEERING"
-  | "MANAGEMENT"
-  | "MERCHANDISER";
+export const USER_ROLES = [
+  "ADMIN",
+  "FINANCE",
+  "PMO",
+  "PRODUCT_DESIGNER",
+  "ENGINEERING",
+  "MANAGEMENT",
+  "MERCHANDISER",
+] as const;
+export type UserRole = (typeof USER_ROLES)[number];
 
 export interface UserSummary {
   id: string;
   name: string;
   email: string;
   role: UserRole;
+  /** ADR 0010/0011: accounts are deactivated, never deleted. */
+  isActive: boolean;
+  /** Set by an admin password reset; cleared by this user's own successful
+   * change-password. While true, every endpoint except `GET /auth/me` and
+   * `POST /auth/change-password` returns 403 (ADR 0011) - the web app must
+   * force this user to the change-password screen. */
+  mustChangePassword: boolean;
   createdAt: string;
 }
 
@@ -235,6 +244,48 @@ export interface ProtoRequest {
     techPack: { id: string; code: string };
   };
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// User management (ADR 0010/0011 in the API). Accounts are created, role-
+// changed, deactivated/reactivated and password-reset by an admin - there is
+// no self-registration. `ChangePasswordRequest` is the one exception: any
+// user can change their own password (needed to clear `mustChangePassword`
+// after an admin reset).
+// ---------------------------------------------------------------------------
+
+/** Body of `POST /users`. ADMIN only; no password field - the server
+ * generates a one-time temporary password, same as a reset (ADR 0011), so
+ * the admin never learns a password the user might reuse elsewhere.
+ * Response: 201 with a `TemporaryPasswordResponse`. */
+export interface CreateUserRequest {
+  name: string;
+  email: string;
+  role: UserRole;
+}
+
+/** Body of `PATCH /users/:id/role`. ADMIN only. */
+export interface ChangeUserRoleRequest {
+  role: UserRole;
+}
+
+/** Response of `POST /users` (201) and `POST /users/:id/reset-password`
+ * (200). ADMIN only; neither takes a password from the admin - the server
+ * generates one (ADR 0011) and sets `user.mustChangePassword`.
+ * `temporaryPassword` is returned exactly once - nothing persists it in
+ * plaintext, and there's no way to see it again after this response. */
+export interface TemporaryPasswordResponse {
+  user: UserSummary;
+  temporaryPassword: string;
+}
+
+/** Body of `POST /auth/change-password`. Any authenticated user, for their
+ * own account - the one way to clear `mustChangePassword` after an admin
+ * reset. Requires the current password. */
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  /** 8 to 128 characters. */
+  newPassword: string;
 }
 
 // ---------------------------------------------------------------------------

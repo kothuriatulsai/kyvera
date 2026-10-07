@@ -1,8 +1,9 @@
 import type { Project } from '@kyvera/shared-types'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { adminSession, adminUser, pmoSession } from '../test/fixtures'
+import { adminSession, adminUser, pmoSession, pmoUser } from '../test/fixtures'
 import { apiGet } from '../api/client'
+import type { Session } from './authContext'
 import { route, stubApi, type MockRoute } from '../test/mockApi'
 import { renderApp } from '../test/renderApp'
 
@@ -239,5 +240,92 @@ describe('an expired or invalid token (a 401 from the API)', () => {
 
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Log in' })).toBeTruthy())
     expect(screen.getByText('Your session expired. Please log in again.')).toBeTruthy()
+  })
+})
+
+describe('a forced password change (ADR 0011)', () => {
+  const mustChangeSession: Session = {
+    token: 'tok-reset',
+    user: { ...adminUser, mustChangePassword: true },
+  }
+
+  it('redirects to My account from any route, instead of showing that route', async () => {
+    stubApi([route('GET', '/projects', { body: [] })])
+    renderApp('/projects', { session: mustChangeSession })
+
+    await screen.findByRole('heading', { name: 'My account' })
+    expect(screen.getByText(/must set a new one/i)).toBeTruthy()
+    expect(screen.queryByText('No projects yet.')).toBeNull()
+  })
+
+  it('lets them change it, then navigates away and unblocks the rest of the app', async () => {
+    const api = stubApi([
+      route('POST', '/auth/change-password', { body: { ...adminUser, mustChangePassword: false } }),
+      route('GET', '/projects', { body: [] }),
+    ])
+    renderApp('/projects', { session: mustChangeSession })
+    await screen.findByRole('heading', { name: 'My account' })
+
+    fireEvent.change(screen.getByLabelText('Current password'), { target: { value: 'the-temp-password' } })
+    fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-real-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Change password' }))
+
+    await screen.findByText('No projects yet.')
+    expect(api.calls.find((c) => c.path === '/auth/change-password')?.body).toEqual({
+      currentPassword: 'the-temp-password',
+      newPassword: 'a-real-password',
+    })
+  })
+})
+
+describe('a role changed while already logged in', () => {
+  it('shows a notice and re-renders actions for the new role after a 403', async () => {
+    stubApi([
+      route('GET', '/projects', { body: [] }),
+      route('POST', '/projects', { status: 403, body: { error: 'This action requires one of these roles: PMO, ADMIN' } }),
+      route('GET', '/auth/me', { body: { ...pmoUser, role: 'FINANCE' } }),
+    ])
+    renderApp('/projects', { session: pmoSession })
+    await screen.findByText('No projects yet.')
+    expect(screen.getByRole('heading', { name: 'New project' })).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Name' } })
+    fireEvent.change(screen.getByLabelText('Product'), { target: { value: 'Product' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
+
+    await screen.findByText('Your role was changed to FINANCE.')
+    // FINANCE can't create a Project - the form is gone now the session reflects that.
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'New project' })).toBeNull())
+  })
+
+  it('re-syncs on window focus too', async () => {
+    stubApi([
+      route('GET', '/projects', { body: [] }),
+      route('GET', '/auth/me', { body: { ...pmoUser, role: 'MANAGEMENT' } }),
+    ])
+    renderApp('/projects', { session: pmoSession })
+    await screen.findByText('No projects yet.')
+
+    window.dispatchEvent(new Event('focus'))
+
+    await screen.findByText('Your role was changed to MANAGEMENT.')
+  })
+
+  it('can be dismissed', async () => {
+    stubApi([
+      route('GET', '/projects', { body: [] }),
+      route('POST', '/projects', { status: 403, body: { error: 'forbidden' } }),
+      route('GET', '/auth/me', { body: { ...pmoUser, role: 'FINANCE' } }),
+    ])
+    renderApp('/projects', { session: pmoSession })
+    await screen.findByText('No projects yet.')
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Name' } })
+    fireEvent.change(screen.getByLabelText('Product'), { target: { value: 'Product' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create project' }))
+    await screen.findByText('Your role was changed to FINANCE.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+
+    expect(screen.queryByText('Your role was changed to FINANCE.')).toBeNull()
   })
 })

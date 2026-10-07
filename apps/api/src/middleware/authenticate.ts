@@ -23,7 +23,9 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
   }
 
   try {
-    req.actor = await resolveActor(verifyAccessToken(token));
+    const resolved = await resolveActor(verifyAccessToken(token));
+    req.actor = { id: resolved.id, role: resolved.role };
+    req.mustChangePassword = resolved.mustChangePassword;
     next();
   } catch (err) {
     next(err);
