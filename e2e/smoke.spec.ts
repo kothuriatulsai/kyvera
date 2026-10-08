@@ -16,6 +16,12 @@ test('pmo@ can log in and reach the Projects page', async ({ page }) => {
   // Lands on Projects (the default route) once logged in.
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
 
+  // ADR 0012: the access token is memory-only, but the httpOnly refresh
+  // cookie survives a reload and restores the session silently - no bounce
+  // to the login page.
+  await page.reload()
+  await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
+
   await page.getByRole('link', { name: 'Proto Requests' }).click()
 
   await expect(page.getByRole('heading', { name: 'Proto Requests', exact: true })).toBeVisible()
