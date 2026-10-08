@@ -3,6 +3,7 @@ import * as userRepository from "../repositories/userRepository";
 import { normalizeEmail } from "./authService";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { generateTemporaryPassword, hashPassword } from "./passwordService";
+import * as sessionService from "./sessionService";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MAX_EMAIL_LENGTH = 254;
@@ -96,7 +97,12 @@ export async function deactivateUser(actorId: string, targetId: string) {
   // already blocked above. Kept in case that changes (e.g. a future "admin
   // deactivates on someone's behalf" path that doesn't require being active).
   await assertNotLastActiveAdmin(user);
-  return userRepository.setActive(targetId, false);
+  const deactivated = await userRepository.setActive(targetId, false);
+  // ADR 0012: ends every session immediately, not just the access tokens
+  // already outstanding - resolveActor's isActive check would eventually
+  // catch those too, but a refresh could otherwise still mint a fresh one.
+  await sessionService.revokeAllForUser(targetId);
+  return deactivated;
 }
 
 export async function reactivateUser(targetId: string) {
@@ -117,5 +123,8 @@ export async function resetPassword(targetId: string) {
   const temporaryPassword = generateTemporaryPassword();
   const passwordHash = await hashPassword(temporaryPassword);
   const user = await userRepository.updatePassword(targetId, passwordHash, true);
+  // ADR 0012: same reasoning as deactivation - a reset must end every
+  // session logged in under the old password immediately.
+  await sessionService.revokeAllForUser(targetId);
   return { user, temporaryPassword };
 }

@@ -1,5 +1,7 @@
 const MIN_JWT_SECRET_LENGTH = 32;
-const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 60 * 60;
+// ADR 0012: short-lived by design now that a refresh token can silently
+// mint a new one - the old 1-hour default assumed there was no refresh flow.
+const DEFAULT_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 
 /**
  * Read lazily (not at import time) so tests and tooling can import the app
@@ -65,10 +67,48 @@ export function getAllowedOrigins(): string[] {
     });
 }
 
+const DEFAULT_IDLE_TIMEOUT_SECONDS = 30 * 60;
+
+/**
+ * ADR 0012: a refresh fails once this long has passed since the session was
+ * last actively kept alive (`UserSession.lastUsedAt`, updated only on a
+ * successful refresh, not on ordinary API calls).
+ */
+export function getIdleTimeoutSeconds(): number {
+  const raw = process.env.REFRESH_IDLE_TIMEOUT_SECONDS;
+  if (raw === undefined || raw === "") return DEFAULT_IDLE_TIMEOUT_SECONDS;
+
+  const seconds = Number(raw);
+  if (!Number.isInteger(seconds) || seconds <= 0) {
+    throw new Error("REFRESH_IDLE_TIMEOUT_SECONDS must be a positive integer");
+  }
+  return seconds;
+}
+
+const DEFAULT_ABSOLUTE_SESSION_TTL_SECONDS = 12 * 60 * 60;
+
+/**
+ * ADR 0012: how long a session can be kept alive by refreshing at all,
+ * measured from login - fixed at session creation, never extended by
+ * rotation, regardless of how recently it was used.
+ */
+export function getAbsoluteSessionTtlSeconds(): number {
+  const raw = process.env.REFRESH_ABSOLUTE_TTL_SECONDS;
+  if (raw === undefined || raw === "") return DEFAULT_ABSOLUTE_SESSION_TTL_SECONDS;
+
+  const seconds = Number(raw);
+  if (!Number.isInteger(seconds) || seconds <= 0) {
+    throw new Error("REFRESH_ABSOLUTE_TTL_SECONDS must be a positive integer");
+  }
+  return seconds;
+}
+
 export function assertAuthConfig(): void {
   getJwtSecret();
   getAccessTokenTtlSeconds();
   getAllowedOrigins();
+  getIdleTimeoutSeconds();
+  getAbsoluteSessionTtlSeconds();
 }
 
 const DEFAULT_UPLOADS_DIR = "uploads";

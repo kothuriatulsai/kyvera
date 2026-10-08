@@ -56,10 +56,11 @@ describe("POST /auth/login", () => {
     expect(res.body.user.passwordHash).toBeUndefined();
 
     // Nothing that can go stale (assignments, ownership) is baked into the token.
-    // `iatMs` (ADR 0011) is the one exception: millisecond-precision issue time,
-    // used only to compare against a password reset, not an identity/role claim.
+    // `iatMs` (ADR 0011) and `sid` (ADR 0012) are the exceptions: millisecond-
+    // precision issue time and the backing session id, used only for the
+    // password-reset and immediate-revocation checks, not identity/role claims.
     const payload = decodePayload(res.body.token);
-    expect(Object.keys(payload).sort()).toEqual(["exp", "iat", "iatMs", "role", "sub"]);
+    expect(Object.keys(payload).sort()).toEqual(["exp", "iat", "iatMs", "role", "sid", "sub"]);
     expect(payload.sub).toBe(user.id);
     expect(payload.role).toBe("FINANCE");
     expect((payload.exp as number) - (payload.iat as number)).toBe(res.body.expiresIn);
@@ -241,7 +242,7 @@ describe("GET /auth/me", () => {
   });
 
   it("returns 401 for a valid token whose user no longer exists", async () => {
-    const { token } = signAccessToken({ id: randomUUID(), role: "FINANCE" });
+    const { token } = signAccessToken({ id: randomUUID(), role: "FINANCE" }, randomUUID());
 
     const res = await request(app).get("/auth/me").set("Authorization", `Bearer ${token}`);
 
