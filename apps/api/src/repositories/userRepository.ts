@@ -33,6 +33,19 @@ export function findMany(db: Db = prisma) {
   return db.user.findMany({ select: safeUserSelect, orderBy: { createdAt: "asc" } });
 }
 
+// The membership-add picker's candidate list (ADR 0013): active users whose
+// role isn't already see-all, excluding whoever is already a member -
+// scoped narrowly to this one purpose rather than reusing the ADMIN-only
+// `GET /users` listing, which PMO (who also manages membership) has no
+// access to and shouldn't gain just for this.
+export function findMembershipCandidates(excludeRoles: UserRole[], excludeUserIds: string[], db: Db = prisma) {
+  return db.user.findMany({
+    where: { isActive: true, role: { notIn: excludeRoles }, id: { notIn: excludeUserIds } },
+    select: safeUserSelect,
+    orderBy: { name: "asc" },
+  });
+}
+
 export function create(data: Prisma.UserCreateInput, db: Db = prisma) {
   return db.user.create({ data, select: safeUserSelect });
 }

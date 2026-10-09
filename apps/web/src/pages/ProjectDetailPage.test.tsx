@@ -1,7 +1,13 @@
 import type { Project, ProtoRequest, TechPackDetail, TechPackListItem } from '@kyvera/shared-types'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { ALL_SESSIONS, adminSession, productDesignerSession, productDesignerUser } from '../test/fixtures'
+import {
+  ALL_SESSIONS,
+  adminSession,
+  pmoSession,
+  productDesignerSession,
+  productDesignerUser,
+} from '../test/fixtures'
 import { route, stubApi } from '../test/mockApi'
 import { renderApp } from '../test/renderApp'
 
@@ -79,7 +85,13 @@ function protoRequest(overrides: Partial<ProtoRequest> = {}): ProtoRequest {
     projectId: 'p1',
     project: { id: 'p1', code: 'PRJ-000001', name: 'Solar Lantern Proto' },
     techPackVersionId: 'v1',
-    techPackVersion: { id: 'v1', versionNumber: 1, techPack: { id: 'tp1', code: 'TP-000001' } },
+    techPackVersion: {
+      id: 'v1',
+      versionNumber: 1,
+      techPack: { id: 'tp1', code: 'TP-000001' },
+      attachments: [],
+      approval: null,
+    },
     createdAt: '2026-09-10T00:00:00.000Z',
     ...overrides,
   }
@@ -97,6 +109,7 @@ function stubDetail(opts: {
     // route too, and must not be intercepted by the *list* endpoint's mock.
     route('GET', /^\/tech-packs$/, { body: techPacks }),
     route('GET', /^\/proto-requests$/, { body: protoRequests }),
+    route('GET', `${PROJECT}/members`, { body: [] }),
   ])
 }
 
@@ -181,14 +194,34 @@ describe('Create tech pack form', () => {
     },
   )
 
-  it.each(ALL_SESSIONS.filter((s) => s.user.role !== 'PRODUCT_DESIGNER' && s.user.role !== 'ADMIN'))(
-    'is not shown to $user.role, regardless of TechPack state',
-    async (session) => {
+  it.each(
+    ALL_SESSIONS.filter(
+      (s) =>
+        s.user.role !== 'PRODUCT_DESIGNER' &&
+        s.user.role !== 'ADMIN' &&
+        // FINANCE/MERCHANDISER don't get a "Tech packs" section at all
+        // (ADR 0013) - covered separately below.
+        s.user.role !== 'FINANCE' &&
+        s.user.role !== 'MERCHANDISER',
+    ),
+  )('is not shown to $user.role, regardless of TechPack state', async (session) => {
+    stubDetail()
+    renderApp(PROJECT, { session })
+
+    await screen.findByText('No tech packs yet.')
+    expect(screen.queryByRole('heading', { name: 'Create tech pack' })).toBeNull()
+  })
+
+  it.each(['FINANCE', 'MERCHANDISER'] as const)(
+    "%s doesn't get a Tech packs section at all (ADR 0013)",
+    async (role) => {
+      const session = ALL_SESSIONS.find((s) => s.user.role === role)!
       stubDetail()
       renderApp(PROJECT, { session })
 
-      await screen.findByText('No tech packs yet.')
-      expect(screen.queryByRole('heading', { name: 'Create tech pack' })).toBeNull()
+      await screen.findByText('No members yet.')
+      expect(screen.queryByRole('heading', { name: 'Tech packs' })).toBeNull()
+      expect(screen.queryByText('No tech packs yet.')).toBeNull()
     },
   )
 
@@ -250,6 +283,7 @@ describe('Create tech pack form', () => {
       route('GET', PROJECT, { body: protoProject }),
       route('GET', /^\/tech-packs$/, { body: [] }),
       route('GET', /^\/proto-requests$/, { body: [] }),
+      route('GET', `${PROJECT}/members`, { body: [] }),
       route('POST', '/tech-packs', { status: 201, body: techPack() }),
       route('GET', '/tech-packs/tp1', { body: techPackDetail() }),
     ])
@@ -278,6 +312,7 @@ describe('Create tech pack form', () => {
       route('GET', PROJECT, { body: protoProject }),
       route('GET', /^\/tech-packs$/, { body: [] }),
       route('GET', /^\/proto-requests$/, { body: [] }),
+      route('GET', `${PROJECT}/members`, { body: [] }),
       route('POST', '/tech-packs', { status: 201, body: techPack() }),
       route('GET', '/tech-packs/tp1', { body: techPackDetail() }),
     ])
@@ -297,6 +332,7 @@ describe('Create tech pack form', () => {
       route('GET', PROJECT, { body: protoProject }),
       route('GET', /^\/tech-packs$/, { body: [] }),
       route('GET', /^\/proto-requests$/, { body: [] }),
+      route('GET', `${PROJECT}/members`, { body: [] }),
       route('POST', '/tech-packs', {
         status: 409,
         body: { error: 'Project p1 already has an active Tech Pack' },
@@ -317,6 +353,7 @@ describe('Create tech pack form', () => {
       route('GET', PROJECT, { body: protoProject }),
       route('GET', /^\/tech-packs$/, { body: [] }),
       route('GET', /^\/proto-requests$/, { body: [] }),
+      route('GET', `${PROJECT}/members`, { body: [] }),
       route('POST', '/tech-packs', { status: 201, body: techPack() }),
       route('GET', '/tech-packs/tp1', { body: techPackDetail() }),
     ])
@@ -330,5 +367,87 @@ describe('Create tech pack form', () => {
     expect(busy.disabled).toBe(true)
 
     await screen.findByRole('heading', { name: 'TP-000001' }) // let it settle before the next test
+  })
+})
+
+describe('Team section', () => {
+  const member = {
+    id: 'm1',
+    projectId: 'p1',
+    userId: productDesignerUser.id,
+    user: productDesignerUser,
+    addedById: 'u-pmo',
+    addedBy: { ...productDesignerUser, id: 'u-pmo', name: 'Priya PMO', role: 'PMO' as const },
+    addedAt: '2026-09-02T00:00:00.000Z',
+  }
+
+  it('lists members, with no Remove button for a role that may not manage them', async () => {
+    stubApi([
+      route('GET', PROJECT, { body: protoProject }),
+      route('GET', /^\/tech-packs$/, { body: [] }),
+      route('GET', /^\/proto-requests$/, { body: [] }),
+      route('GET', `${PROJECT}/members`, { body: [member] }),
+    ])
+    renderApp(PROJECT, { session: productDesignerSession })
+
+    await screen.findByText('Deepa Designer')
+    expect(screen.queryByRole('button', { name: 'Remove' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Add a member' })).toBeNull()
+  })
+
+  it('lets PMO add a member from the candidates picker', async () => {
+    const candidate = { ...productDesignerUser, id: 'u-new', name: 'New Designer' }
+    const added = { ...member, userId: candidate.id, user: candidate }
+    let members: (typeof member)[] = []
+    const api = stubApi([
+      route('GET', PROJECT, { body: protoProject }),
+      route('GET', /^\/tech-packs$/, { body: [] }),
+      route('GET', /^\/proto-requests$/, { body: [] }),
+      { method: 'GET', path: `${PROJECT}/members`, respond: () => ({ body: members }) },
+      route('GET', `${PROJECT}/members/candidates`, { body: [candidate] }),
+      {
+        method: 'POST',
+        path: `${PROJECT}/members`,
+        respond: () => {
+          members = [added]
+          return { status: 201, body: added }
+        },
+      },
+    ])
+    renderApp(PROJECT, { session: pmoSession })
+    await screen.findByText('No members yet.')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add a member' }))
+    await screen.findByRole('option', { name: /New Designer/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+
+    await screen.findByText('New Designer')
+    const addCall = api.calls.find((c) => c.path === `${PROJECT}/members` && c.method === 'POST')
+    expect(addCall?.body).toEqual({ userId: candidate.id })
+  })
+
+  it('lets PMO remove a member', async () => {
+    let members: typeof member[] = [member]
+    const api = stubApi([
+      route('GET', PROJECT, { body: protoProject }),
+      route('GET', /^\/tech-packs$/, { body: [] }),
+      route('GET', /^\/proto-requests$/, { body: [] }),
+      { method: 'GET', path: `${PROJECT}/members`, respond: () => ({ body: members }) },
+      {
+        method: 'POST',
+        path: `${PROJECT}/members/${member.userId}/remove`,
+        respond: () => {
+          members = []
+          return { status: 204 }
+        },
+      },
+    ])
+    renderApp(PROJECT, { session: pmoSession })
+    await screen.findByText('Deepa Designer')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+
+    await screen.findByText('No members yet.')
+    expect(api.calls.some((c) => c.path === `${PROJECT}/members/${member.userId}/remove`)).toBe(true)
   })
 })

@@ -25,6 +25,9 @@ jobs:
       # The Playwright smoke test logs in with this same seeded user/password.
       E2E_PMO_EMAIL: pmo@kyvera.dev
       E2E_PMO_PASSWORD: ci-only-seed-password-not-used-anywhere-else
+      # Same seeded password - every seed.ts user shares SEED_USER_PASSWORD.
+      E2E_DESIGNER2_EMAIL: designer2@kyvera.dev
+      E2E_DESIGNER2_PASSWORD: ci-only-seed-password-not-used-anywhere-else
     services:
       postgres:
         image: postgres:16-alpine

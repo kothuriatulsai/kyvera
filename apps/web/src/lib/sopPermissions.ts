@@ -14,6 +14,22 @@ export function canCreateProject(role: UserRole): boolean {
   return role === 'PMO' || role === 'ADMIN'
 }
 
+/** ADR 0013: PMO/ADMIN manage a Project's membership. */
+export function canManageMembers(role: UserRole): boolean {
+  return role === 'PMO' || role === 'ADMIN'
+}
+
+/**
+ * ADR 0013: FINANCE/MERCHANDISER never browse Tech Packs directly - their
+ * only lens into one is the Proto Request it produced. The server already
+ * enforces this (`GET /tech-packs` comes back empty, `GET /tech-packs/:id`
+ * 404s), so this is purely "don't show an empty section that implies there
+ * genuinely are none, when the truth is this role just can't see them."
+ */
+export function canSeeTechPacksSection(role: UserRole): boolean {
+  return role !== 'FINANCE' && role !== 'MERCHANDISER'
+}
+
 /**
  * PRODUCT_DESIGNER/ADMIN, and only when the Project has no non-voided
  * TechPack for its *current* phase - the exact rule
@@ -30,7 +46,7 @@ export function canCreateTechPack(
   return !techPacks.some((tp) => tp.voidedAt === null && tp.phase === project.phase)
 }
 
-type TechPackState = Pick<TechPackDetail, 'voidedAt' | 'versions'>
+type TechPackState = Pick<TechPackDetail, 'voidedAt' | 'versions' | 'hasPendingNewerVersion'>
 
 /** TechPack-wide, not per-version - once any version is approved, the Proto
  * Request it created has already fired, so the TechPack's job is done (see
@@ -81,7 +97,11 @@ export function canConfirm(
 /**
  * MANAGEMENT only, and only once the latest version *has* a confirmation
  * (the mirror image of `canConfirm`), while the TechPack isn't voided or
- * already approved.
+ * already approved. Also false while `hasPendingNewerVersion` is set (ADR
+ * 0013) - Management's own "latest" version in a shaped response is only
+ * the latest *confirmed* one, and deciding it while a newer, unconfirmed
+ * version actually exists would just hit the API's own 409 (no longer the
+ * latest) - better to not offer the action at all and explain why instead.
  */
 export function canDecide(
   role: UserRole,
@@ -89,6 +109,6 @@ export function canDecide(
   latestVersion: Pick<TechPackVersion, 'confirmation'>,
 ): boolean {
   if (role !== 'MANAGEMENT') return false
-  if (techPack.voidedAt !== null || hasApprovedVersion(techPack)) return false
+  if (techPack.voidedAt !== null || hasApprovedVersion(techPack) || techPack.hasPendingNewerVersion) return false
   return latestVersion.confirmation !== null
 }

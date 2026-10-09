@@ -4,6 +4,8 @@ import * as techPackVersionRepository from "../repositories/techPackVersionRepos
 import * as projectRepository from "../repositories/projectRepository";
 import { prisma } from "../repositories/prismaClient";
 import { attachmentStorage, isAllowedAttachmentExtension, MAX_ATTACHMENT_SIZE_BYTES } from "./storage";
+import type { Actor } from "./tokenService";
+import * as visibility from "./visibility";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
 
 export interface UploadedFile {
@@ -107,7 +109,15 @@ async function createAttachmentRows(
   }
 }
 
-export async function createTechPack(createdById: string, input: CreateTechPackInput) {
+export async function createTechPack(actor: Actor, input: CreateTechPackInput) {
+  // ADR 0013: checked before anything expensive (file saves, the
+  // transaction below) - a Product Designer who isn't a member of this
+  // Project shouldn't be able to tell the difference between "doesn't
+  // exist" and "exists but I can't see it", and shouldn't have their upload
+  // written to disk either way.
+  await visibility.assertProjectVisible(actor, input.projectId);
+  const createdById = actor.id;
+
   validateFiles(input.files);
 
   const saved = await saveFilesToStorage(input.files);
@@ -159,14 +169,17 @@ export async function createTechPack(createdById: string, input: CreateTechPackI
     throw err;
   }
 
-  return getTechPack(techPackId);
+  return getTechPack(actor, techPackId);
 }
 
 export async function uploadTechPackVersion(
-  uploadedById: string,
+  actor: Actor,
   techPackId: string,
   input: UploadTechPackVersionInput,
 ) {
+  await visibility.assertTechPackVisibleById(actor, techPackId);
+  const uploadedById = actor.id;
+
   validateFiles(input.files);
 
   const saved = await saveFilesToStorage(input.files);
@@ -206,17 +219,36 @@ export async function uploadTechPackVersion(
     throw err;
   }
 
-  return getTechPack(techPackId);
+  return getTechPack(actor, techPackId);
 }
 
-export async function listTechPacks(projectId?: string) {
-  return techPackRepository.findMany(projectId ? { projectId } : {});
+export async function listTechPacks(actor: Actor, projectId?: string) {
+  const stageWhere = visibility.techPackStageWhere(actor.role);
+  if (stageWhere === null) {
+    return [];
+  }
+
+  const visibleIds = await visibility.visibleProjectIds(actor);
+  const where: Prisma.TechPackWhereInput = { ...stageWhere };
+  if (projectId) {
+    where.projectId = projectId;
+  } else if (visibleIds !== null) {
+    where.projectId = { in: visibleIds };
+  }
+  // A caller who passed ?projectId= for a Project outside their visible set
+  // gets an empty list, not a 403/404 - same "lists filter" rule as any
+  // other list endpoint; assertProjectVisible is what 404s a *detail* read.
+  if (projectId && visibleIds !== null && !visibleIds.includes(projectId)) {
+    return [];
+  }
+
+  return techPackRepository.findMany(where);
 }
 
-export async function getTechPack(id: string) {
+export async function getTechPack(actor: Actor, id: string) {
   const techPack = await techPackRepository.findById(id);
   if (!techPack) {
     throw new NotFoundError(`Tech Pack ${id} not found`);
   }
-  return techPack;
+  return visibility.visibleTechPackDetail(actor, techPack);
 }

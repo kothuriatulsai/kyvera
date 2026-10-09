@@ -61,6 +61,10 @@ model User {
   techPackApprovals        TechPackApproval[]     @relation("TechPackApprover")
   attachmentsUploaded      Attachment[]           @relation("AttachmentUploader")
   sessions                 UserSession[]
+  projectMemberships       ProjectMember[]        @relation("ProjectMemberUser")
+  projectMembersAdded      ProjectMember[]        @relation("ProjectMemberAdder")
+  projectMemberHistoryFor  ProjectMemberHistory[] @relation("ProjectMemberHistoryUser")
+  projectMemberHistoryBy   ProjectMemberHistory[] @relation("ProjectMemberHistoryActor")
 
   @@map("users")
 }
@@ -144,8 +148,58 @@ model Project {
 
   techPacks     TechPack[]
   protoRequests ProtoRequest[]
+  members       ProjectMember[]
+  memberHistory ProjectMemberHistory[]
 
   @@map("projects")
+}
+
+enum ProjectMemberAction {
+  ADDED
+  REMOVED
+
+  @@map("project_member_action")
+}
+
+// Layer A of ADR 0013's visibility model: who may see a Project at all (and,
+// transitively, its Tech Packs/Proto Requests - layer B, within services/
+// visibility.ts, further narrows *which parts* once a role clears this gate).
+// ADMIN/PMO/MANAGEMENT bypass this table entirely (see-all roles); every
+// other role must have a row here. onDelete: Restrict, not Cascade like
+// UserSession - this is audit-relevant membership data, not ephemeral auth
+// state (ADR 0006 point 9's default, same as the rest of the SOP domain).
+model ProjectMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  userId    String   @map("user_id") @db.Uuid
+  user      User     @relation("ProjectMemberUser", fields: [userId], references: [id], onDelete: Restrict)
+  addedById String   @map("added_by") @db.Uuid
+  addedBy   User     @relation("ProjectMemberAdder", fields: [addedById], references: [id], onDelete: Restrict)
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  @@unique([projectId, userId])
+  @@index([userId])
+  @@map("project_members")
+}
+
+// Append-only audit trail alongside ProjectMember's current-state table -
+// same "current state table + paired history table" shape this project's
+// design principles have called for since the very first handoff doc
+// (Section 3), just not needed again until now.
+model ProjectMemberHistory {
+  id        String              @id @default(uuid()) @db.Uuid
+  projectId String              @map("project_id") @db.Uuid
+  project   Project             @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  userId    String              @map("user_id") @db.Uuid
+  user      User                @relation("ProjectMemberHistoryUser", fields: [userId], references: [id], onDelete: Restrict)
+  action    ProjectMemberAction
+  byId      String              @map("by") @db.Uuid
+  by        User                @relation("ProjectMemberHistoryActor", fields: [byId], references: [id], onDelete: Restrict)
+  at        DateTime            @default(now())
+
+  @@index([projectId])
+  @@map("project_member_history")
 }
 
 // One row per TP number (parent); revisions are child TechPackVersion rows.

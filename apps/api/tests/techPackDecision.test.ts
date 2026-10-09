@@ -4,6 +4,7 @@ import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
 import { attachmentStorage } from "../src/services/storage";
 import { cleanupTestUsers, createTestUser } from "./helpers/auth";
+import { addMember } from "./helpers/membership";
 
 const app = createApp();
 
@@ -40,6 +41,8 @@ afterAll(async () => {
   });
   await prisma.techPack.deleteMany({ where: { id: { in: createdTechPackIds } } });
 
+  await prisma.projectMemberHistory.deleteMany({ where: { projectId: { in: createdProjectIds } } });
+  await prisma.projectMember.deleteMany({ where: { projectId: { in: createdProjectIds } } });
   await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
   await cleanupTestUsers();
   await prisma.$disconnect();
@@ -89,9 +92,11 @@ async function decide(
 
 async function setUpConfirmedVersion1() {
   const { agent: pmo } = await createTestUser(app, "PMO");
-  const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
-  const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+  const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
+  const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
   const project = await createProject(pmo);
+  await addMember(project.id, designerId);
+  await addMember(project.id, engineeringId);
   const created = await createTechPack(designer, project.id);
   const techPackId = created.body.id as string;
   const techPackCode = created.body.code as string;
@@ -146,7 +151,8 @@ describe("POST /tech-packs/:id/versions/:versionNumber/decision", () => {
     // The voided TechPack takes no further uploads or remarks.
     const blockedUpload = await uploadVersion(designer, techPackId);
     expect(blockedUpload.status).toBe(409);
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(project.id, engineeringId);
     const blockedRemark = await engineering
       .post(`/tech-packs/${techPackId}/versions/1/remarks`)
       .send({ body: "too late" });
@@ -258,10 +264,12 @@ describe("POST /tech-packs/:id/versions/:versionNumber/decision", () => {
 
   it("refuses to approve the latest version when only an earlier version is confirmed (ADR 0006)", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
     const { agent: management } = await createTestUser(app, "MANAGEMENT");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
+    await addMember(project.id, engineeringId);
     const created = await createTechPack(designer, project.id);
     const techPackId = created.body.id as string;
 
@@ -302,13 +310,15 @@ describe("POST /tech-packs/:id/versions/:versionNumber/decision", () => {
 });
 
 describe("GET /proto-requests and /proto-requests/:id", () => {
-  it("lists and reads back a ProtoRequest created by an approval", async () => {
+  it("lists and reads back a ProtoRequest created by an approval, with the pinned version's files and approval (ADR 0013)", async () => {
     const { techPackId, techPackCode, project } = await setUpConfirmedVersion1();
     const { agent: management } = await createTestUser(app, "MANAGEMENT");
     const approved = await decide(management, techPackId, 1, { decision: "APPROVED" });
     const protoRequestId = approved.body.protoRequest.id;
 
-    const { agent: finance } = await createTestUser(app, "FINANCE");
+    const { agent: finance, id: financeId } = await createTestUser(app, "FINANCE");
+    await addMember(project.id, financeId);
+
     const list = await finance.get("/proto-requests");
     expect(list.status).toBe(200);
     expect(list.body.some((pr: { id: string }) => pr.id === protoRequestId)).toBe(true);
@@ -318,6 +328,8 @@ describe("GET /proto-requests and /proto-requests/:id", () => {
     expect(detail.body.project.id).toBe(project.id);
     expect(detail.body.techPackVersion.techPack.code).toBe(techPackCode);
     expect(detail.body.techPackVersion.versionNumber).toBe(1);
+    expect(detail.body.techPackVersion.attachments).toHaveLength(1);
+    expect(detail.body.techPackVersion.approval).toMatchObject({ decision: "APPROVED" });
   });
 
   it("filters by projectId", async () => {
@@ -327,12 +339,26 @@ describe("GET /proto-requests and /proto-requests/:id", () => {
     const approvedA = await decide(management, techPackIdA, 1, { decision: "APPROVED" });
     await decide(management, techPackIdB, 1, { decision: "APPROVED" });
 
-    const { agent: finance } = await createTestUser(app, "FINANCE");
+    const { agent: finance, id: financeId } = await createTestUser(app, "FINANCE");
+    await addMember(projectA.id, financeId);
     const res = await finance.get(`/proto-requests?projectId=${projectA.id}`);
 
     expect(res.status).toBe(200);
     expect(res.body).toHaveLength(1);
     expect(res.body[0].id).toBe(approvedA.body.protoRequest.id);
+  });
+
+  it("hides a ProtoRequest from a non-member, non-see-all role (ADR 0013)", async () => {
+    const { techPackId, project } = await setUpConfirmedVersion1();
+    const { agent: management } = await createTestUser(app, "MANAGEMENT");
+    const approved = await decide(management, techPackId, 1, { decision: "APPROVED" });
+
+    const { agent: finance } = await createTestUser(app, "FINANCE");
+    const list = await finance.get(`/proto-requests?projectId=${project.id}`);
+    expect(list.body).toEqual([]);
+
+    const detail = await finance.get(`/proto-requests/${approved.body.protoRequest.id}`);
+    expect(detail.status).toBe(404);
   });
 
   it("404s an unknown (but well-formed) id", async () => {

@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { UserRole } from "@prisma/client";
 import { requireActor } from "../middleware/authenticate";
+import * as projectService from "../services/projectService";
 import * as userManagementService from "../services/userManagementService";
 import { ValidationError } from "../services/errors";
 import { asyncHandler } from "./asyncHandler";
@@ -48,4 +49,8 @@ export const reactivateUser = asyncHandler(async (req: Request, res: Response) =
 export const resetPassword = asyncHandler(async (req: Request, res: Response) => {
   const { user, temporaryPassword } = await userManagementService.resetPassword(req.params.id);
   res.json({ user, temporaryPassword });
+});
+
+export const listProjectsForUser = asyncHandler(async (req: Request, res: Response) => {
+  res.json(await projectService.listProjectsForUser(req.params.id));
 });

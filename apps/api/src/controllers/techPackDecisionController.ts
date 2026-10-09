@@ -21,7 +21,7 @@ export const decideTechPackVersion = asyncHandler(async (req: Request, res: Resp
   }
 
   const result = await techPackDecisionService.decideTechPackVersion(
-    actor.id,
+    actor,
     req.params.id,
     versionNumberFrom(req),
     { decision: decision as ApprovalDecision, notes: optionalString(body, "notes") },

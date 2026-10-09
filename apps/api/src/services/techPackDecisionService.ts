@@ -6,6 +6,8 @@ import * as techPackConfirmationRepository from "../repositories/techPackConfirm
 import * as techPackApprovalRepository from "../repositories/techPackApprovalRepository";
 import * as protoRequestRepository from "../repositories/protoRequestRepository";
 import { prisma } from "../repositories/prismaClient";
+import type { Actor } from "./tokenService";
+import * as visibility from "./visibility";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
 
 export interface DecideTechPackVersionInput {
@@ -18,11 +20,19 @@ export interface DecideTechPackVersionInput {
 // another decision on the same TechPack - e.g. approving a version that
 // stopped being the latest a moment earlier.
 export async function decideTechPackVersion(
-  decidedById: string,
+  actor: Actor,
   techPackId: string,
   versionNumber: number,
   input: DecideTechPackVersionInput,
 ) {
+  // Layer A only (ADR 0013) - Management is a see-all role, so this never
+  // actually rejects a real request today, but every SOP write goes through
+  // the same check regardless of whether a given role happens to need it,
+  // so a future role gaining decide-rights without being see-all is covered
+  // automatically rather than by remembering to add this later.
+  await visibility.assertTechPackVisibleById(actor, techPackId);
+  const decidedById = actor.id;
+
   if (input.decision === "REJECTED" && (input.notes === undefined || input.notes.trim() === "")) {
     throw new ValidationError("notes is required when rejecting (it becomes the TechPack's voidReason)");
   }

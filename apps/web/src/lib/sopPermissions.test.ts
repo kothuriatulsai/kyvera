@@ -1,6 +1,15 @@
 import type { ApprovalDecision, Project, TechPackListItem, TechPackVersion, UserRole } from '@kyvera/shared-types'
 import { describe, expect, it } from 'vitest'
-import { canConfirm, canCreateProject, canCreateTechPack, canDecide, canRemark, canUploadVersion } from './sopPermissions'
+import {
+  canConfirm,
+  canCreateProject,
+  canCreateTechPack,
+  canDecide,
+  canManageMembers,
+  canRemark,
+  canSeeTechPacksSection,
+  canUploadVersion,
+} from './sopPermissions'
 
 const ALL_ROLES: UserRole[] = [
   'ADMIN',
@@ -190,5 +199,31 @@ describe('canDecide', () => {
   it('forbids it once the TechPack is already approved', () => {
     const approvedAndConfirmed = version('APPROVED', true)
     expect(canDecide('MANAGEMENT', techPackState(null, [approvedAndConfirmed]), approvedAndConfirmed)).toBe(false)
+  })
+
+  it('forbids it while hasPendingNewerVersion is set, even though the given version is confirmed (ADR 0013)', () => {
+    const confirmed = version(undefined, true)
+    const pending = { ...techPackState(null, [confirmed]), hasPendingNewerVersion: true }
+    expect(canDecide('MANAGEMENT', pending, confirmed)).toBe(false)
+  })
+})
+
+describe('canManageMembers', () => {
+  it.each(['PMO', 'ADMIN'] as UserRole[])('allows %s', (role) => {
+    expect(canManageMembers(role)).toBe(true)
+  })
+
+  it.each(ALL_ROLES.filter((role) => role !== 'PMO' && role !== 'ADMIN'))('forbids %s', (role) => {
+    expect(canManageMembers(role)).toBe(false)
+  })
+})
+
+describe('canSeeTechPacksSection', () => {
+  it.each(ALL_ROLES.filter((role) => role !== 'FINANCE' && role !== 'MERCHANDISER'))('allows %s', (role) => {
+    expect(canSeeTechPacksSection(role)).toBe(true)
+  })
+
+  it.each(['FINANCE', 'MERCHANDISER'] as UserRole[])('forbids %s - they never browse Tech Packs (ADR 0013)', (role) => {
+    expect(canSeeTechPacksSection(role)).toBe(false)
   })
 })

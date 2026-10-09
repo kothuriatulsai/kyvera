@@ -12,7 +12,13 @@ function protoRequest(overrides: Partial<ProtoRequest> = {}): ProtoRequest {
     projectId: 'p1',
     project: { id: 'p1', code: 'PRJ-000001', name: 'Solar Lantern Proto' },
     techPackVersionId: 'v1',
-    techPackVersion: { id: 'v1', versionNumber: 1, techPack: { id: 'tp1', code: 'TP-000001' } },
+    techPackVersion: {
+      id: 'v1',
+      versionNumber: 1,
+      techPack: { id: 'tp1', code: 'TP-000001' },
+      attachments: [],
+      approval: null,
+    },
     createdAt: '2026-09-10T00:00:00.000Z',
     ...overrides,
   }

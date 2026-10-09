@@ -39,6 +39,13 @@ export function findById(id: string, db: Db = prisma) {
   return db.techPack.findUnique({ where: { id }, include: detailInclude });
 }
 
+// A narrow select for an early visibility check (ADR 0013) before a service
+// does anything expensive (saving uploaded files, opening a transaction) -
+// just enough to call `assertProjectVisible`, not the full detail include.
+export function findScopeById(id: string, db: Db = prisma) {
+  return db.techPack.findUnique({ where: { id }, select: { projectId: true } });
+}
+
 // At most one non-voided TechPack per Project per phase (decided rule, enforced
 // here rather than a DB constraint - see techPackService.createTechPack).
 export function findActiveByProjectAndPhase(projectId: string, phase: ProjectPhase, db: Db = prisma) {

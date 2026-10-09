@@ -16,11 +16,13 @@ export function create(data: Prisma.TechPackVersionCreateInput, db: Db = prisma)
 // Carries the parent TechPack along (just its scalar fields, no nested
 // includes) so a caller that only has a techPackId + versionNumber - a remark
 // or confirmation endpoint, say - can check `voidedAt`/`code` without a
-// second query.
+// second query. Also carries whether this version is confirmed (just the id,
+// not the full confirmation row) - `visibility.assertVersionBrowsable` (ADR
+// 0013) needs that to decide whether Management may see it at all.
 export function findByTechPackAndNumber(techPackId: string, versionNumber: number, db: Db = prisma) {
   return db.techPackVersion.findUnique({
     where: { techPackId_versionNumber: { techPackId, versionNumber } },
-    include: { techPack: true },
+    include: { techPack: true, confirmation: { select: { id: true } } },
   });
 }
 

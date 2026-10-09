@@ -11,6 +11,10 @@ const users = [
   { email: "finance@kyvera.dev", name: "Fran Finance", role: "FINANCE" as const },
   { email: "pmo@kyvera.dev", name: "Priya PMO", role: "PMO" as const },
   { email: "designer@kyvera.dev", name: "Deepa Designer", role: "PRODUCT_DESIGNER" as const },
+  // A second Product Designer, deliberately never a member of any seeded
+  // Project - ADR 0013's smoke-test proof that a non-member really can't
+  // see a Project they didn't create or get added to.
+  { email: "designer2@kyvera.dev", name: "Dev Designer", role: "PRODUCT_DESIGNER" as const },
   { email: "engineering@kyvera.dev", name: "Emre Engineering", role: "ENGINEERING" as const },
   { email: "management@kyvera.dev", name: "Mira Management", role: "MANAGEMENT" as const },
   { email: "merchandiser@kyvera.dev", name: "Milo Merchandiser", role: "MERCHANDISER" as const },

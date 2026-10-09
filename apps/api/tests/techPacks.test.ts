@@ -6,6 +6,7 @@ import { getUploadsDir } from "../src/config";
 import { prisma } from "../src/repositories/prismaClient";
 import { attachmentStorage } from "../src/services/storage";
 import { cleanupTestUsers, createTestUser } from "./helpers/auth";
+import { addMember } from "./helpers/membership";
 
 const app = createApp();
 
@@ -30,6 +31,9 @@ afterAll(async () => {
   });
   await prisma.techPackVersion.deleteMany({ where: { techPackId: { in: createdTechPackIds } } });
   await prisma.techPack.deleteMany({ where: { id: { in: createdTechPackIds } } });
+  // ProjectMember/ProjectMemberHistory are onDelete: Restrict too (ADR 0013).
+  await prisma.projectMemberHistory.deleteMany({ where: { projectId: { in: createdProjectIds } } });
+  await prisma.projectMember.deleteMany({ where: { projectId: { in: createdProjectIds } } });
   await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
   await cleanupTestUsers();
   await prisma.$disconnect();
@@ -83,8 +87,9 @@ async function uploadVersion(
 describe("POST /tech-packs", () => {
   it("creates a TechPack with version 1 and its attachment, owned by the authenticated actor", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
 
     const res = await createTechPack(designer, project.id, {
       notes: "first cut",
@@ -110,8 +115,9 @@ describe("POST /tech-packs", () => {
 
   it("accepts more than one file on a single version", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
 
     const res = await createTechPack(designer, project.id, {
       files: [{ name: "spec.pdf" }, { name: "reference.png" }],
@@ -149,8 +155,9 @@ describe("POST /tech-packs", () => {
 
   it("requires at least one file", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
 
     const res = await createTechPack(designer, project.id, { files: [] });
 
@@ -159,8 +166,9 @@ describe("POST /tech-packs", () => {
 
   it("rejects a disallowed file extension", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
 
     const res = await createTechPack(designer, project.id, { files: [{ name: "payload.exe" }] });
 
@@ -177,8 +185,9 @@ describe("POST /tech-packs", () => {
 
   it("refuses a second active TechPack for the same Project and phase", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
 
     const first = await createTechPack(designer, project.id);
     expect(first.status).toBe(201);
@@ -189,8 +198,9 @@ describe("POST /tech-packs", () => {
 
   it("lets exactly one of two concurrent creates win for the same Project and phase", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
 
     const [a, b] = await Promise.allSettled([
       createTechPack(designer, project.id),
@@ -205,8 +215,9 @@ describe("POST /tech-packs", () => {
 
   it("allows a new active TechPack once the first was voided", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
 
     const first = await createTechPack(designer, project.id);
     await prisma.techPack.update({
@@ -223,8 +234,9 @@ describe("POST /tech-packs", () => {
 describe("POST /tech-packs/:id/versions", () => {
   it("adds version 2 to an existing TechPack", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
     const created = await createTechPack(designer, project.id);
 
     const res = await uploadVersion(designer, created.body.id, { notes: "addressed remarks" });
@@ -245,8 +257,9 @@ describe("POST /tech-packs/:id/versions", () => {
 
   it("refuses a new version on a voided TechPack", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
     const created = await createTechPack(designer, project.id);
     await prisma.techPack.update({
       where: { id: created.body.id },
@@ -260,8 +273,9 @@ describe("POST /tech-packs/:id/versions", () => {
 
   it("leaves no orphan files on disk when the transaction fails", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
     const created = await createTechPack(designer, project.id);
     await prisma.techPack.update({
       where: { id: created.body.id },
@@ -281,9 +295,10 @@ describe("POST /tech-packs/:id/versions", () => {
 
   it("refuses a new version once a version has been approved", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const { id: managementUserId } = await createTestUser(app, "MANAGEMENT");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
     const created = await createTechPack(designer, project.id);
     await prisma.techPackApproval.create({
       data: {
@@ -302,9 +317,10 @@ describe("POST /tech-packs/:id/versions", () => {
     "forbids %s",
     async (role) => {
       const { agent: pmo } = await createTestUser(app, "PMO");
-      const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+      const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
       const { agent } = await createTestUser(app, role);
       const project = await createProject(pmo);
+      await addMember(project.id, designerId);
       const created = await createTechPack(designer, project.id);
 
       const res = await uploadVersion(agent, created.body.id);
@@ -315,16 +331,19 @@ describe("POST /tech-packs/:id/versions", () => {
 });
 
 describe("GET /tech-packs and /tech-packs/:id", () => {
-  it("lists tech packs, optionally filtered by projectId, for any authenticated role", async () => {
+  it("lists tech packs, optionally filtered by projectId, for a see-all role", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
-    const { agent: finance } = await createTestUser(app, "FINANCE");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const projectA = await createProject(pmo);
     const projectB = await createProject(pmo);
+    await addMember(projectA.id, designerId);
+    await addMember(projectB.id, designerId);
     const inA = await createTechPack(designer, projectA.id);
     await createTechPack(designer, projectB.id);
 
-    const filtered = await finance.get(`/tech-packs?projectId=${projectA.id}`);
+    // PMO: a see-all role (ADR 0013), so this exercises the ?projectId=
+    // filter itself, not membership.
+    const filtered = await pmo.get(`/tech-packs?projectId=${projectA.id}`);
 
     expect(filtered.status).toBe(200);
     expect(filtered.body).toHaveLength(1);
@@ -333,8 +352,9 @@ describe("GET /tech-packs and /tech-packs/:id", () => {
 
   it("reads one back with its versions and attachments nested", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
     const created = await createTechPack(designer, project.id);
 
     const res = await designer.get(`/tech-packs/${created.body.id}`);
@@ -356,8 +376,9 @@ describe("GET /tech-packs and /tech-packs/:id", () => {
 describe("GET /attachments/:id/download", () => {
   it("streams the file back with the original name and MIME type", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
-    const { agent: designer } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
     const project = await createProject(pmo);
+    await addMember(project.id, designerId);
     const created = await createTechPack(designer, project.id, {
       files: [{ name: "spec.pdf", content: "exact bytes to round-trip" }],
     });
