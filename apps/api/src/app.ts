@@ -1,3 +1,4 @@
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { Prisma } from "@prisma/client";
@@ -19,6 +20,12 @@ export function createApp(): Express {
     methods: ["GET", "POST", "PATCH", "DELETE"],
     allowedHeaders: ["Authorization", "Content-Type"],
     maxAge: 600, // let browsers cache the preflight for 10 minutes
+    // ADR 0012: the refresh/logout cookie is only useful if the browser is
+    // allowed to send it cross-origin (the web app and API run on different
+    // ports even in dev) and allowed to see the response. Still never a
+    // wildcard origin above - credentials + "*" isn't valid per the Fetch
+    // spec anyway, and this was already an explicit allowlist.
+    credentials: true,
   });
   app.use((req, res, next) => {
     const origin = req.headers.origin;
@@ -29,6 +36,7 @@ export function createApp(): Express {
     corsForAllowedOrigins(req, res, next);
   });
   app.use(express.json());
+  app.use(cookieParser());
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });

@@ -1,6 +1,6 @@
 import type { Project } from '@kyvera/shared-types'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { adminSession, adminUser, pmoSession, pmoUser } from '../test/fixtures'
 import { apiGet } from '../api/client'
 import type { Session } from './authContext'
@@ -27,7 +27,15 @@ const loginRoute: MockRoute = {
   path: '/auth/login',
   respond: (request) =>
     (request.body as { password: string }).password === 'right'
-      ? { body: { token: 'tok-1', tokenType: 'Bearer', expiresIn: 3600, user: adminUser } }
+      ? {
+          body: {
+            token: 'tok-1',
+            tokenType: 'Bearer',
+            expiresIn: 3600,
+            idleTimeoutSeconds: 1800,
+            user: adminUser,
+          },
+        }
       : { status: 401, body: { error: 'Invalid email or password' } },
 }
 
@@ -43,15 +51,22 @@ describe('login', () => {
   it('logs in, goes to the projects page, and sends the token from then on', async () => {
     const api = stubApi([loginRoute, ...dataRoutes])
     renderApp('/login')
+    // The mount-time silent-restore check (ADR 0012) runs first, finds no
+    // session (nothing here mocks /auth/refresh, so it 404s), and only then
+    // does the login page actually appear.
+    await screen.findByRole('heading', { name: 'Log in' })
 
     logIn()
 
     await screen.findByText('PRJ-000001')
     expect(screen.getByRole('heading', { name: 'Projects' })).toBeTruthy()
     // The login request itself carries no token; everything after it does.
-    expect(api.calls[0]).toMatchObject({ method: 'POST', path: '/auth/login', authorization: null })
-    expect(api.calls[0].body).toEqual({ email: 'admin@kyvera.dev', password: 'right' })
-    for (const call of api.calls.slice(1)) expect(call.authorization).toBe('Bearer tok-1')
+    const loginCall = api.calls.find((c) => c.path === '/auth/login')!
+    expect(loginCall).toMatchObject({ method: 'POST', path: '/auth/login', authorization: null })
+    expect(loginCall.body).toEqual({ email: 'admin@kyvera.dev', password: 'right' })
+    for (const call of api.calls.slice(api.calls.indexOf(loginCall) + 1)) {
+      expect(call.authorization).toBe('Bearer tok-1')
+    }
     // ...and the header now shows who is logged in.
     expect(screen.getByText('Alex Admin')).toBeTruthy()
   })
@@ -59,6 +74,7 @@ describe('login', () => {
   it('keeps the token in memory only: nothing is written to browser storage', async () => {
     stubApi([loginRoute, ...dataRoutes])
     renderApp('/login')
+    await screen.findByRole('heading', { name: 'Log in' })
 
     logIn()
     await screen.findByText('PRJ-000001')
@@ -71,6 +87,7 @@ describe('login', () => {
   it('rejects a wrong password with a clear message, and stays on the login page', async () => {
     const api = stubApi([loginRoute, ...dataRoutes])
     renderApp('/login')
+    await screen.findByRole('heading', { name: 'Log in' })
 
     logIn('wrong')
 
@@ -79,7 +96,7 @@ describe('login', () => {
     expect(screen.getByRole('heading', { name: 'Log in' })).toBeTruthy()
     // A failed login is not an "expired session", and nothing protected was fetched.
     expect(screen.queryByText(/session expired/i)).toBeNull()
-    expect(api.paths()).toEqual(['/auth/login'])
+    expect(api.paths()).toEqual(['/auth/refresh', '/auth/login'])
     expect(screen.queryByText('Log out')).toBeNull()
   })
 
@@ -87,6 +104,7 @@ describe('login', () => {
     // What a browser does when the API is down or a CORS check fails: fetch rejects.
     stubApi([route('POST', '/auth/login', 'network-error')])
     renderApp('/login')
+    await screen.findByRole('heading', { name: 'Log in' })
 
     logIn()
 
@@ -107,13 +125,16 @@ describe('login', () => {
 
 describe('protected routes', () => {
   it.each([['/'], ['/projects'], ['/no/such/page']])(
-    'sends a logged-out visitor from %s to the login page without calling the API',
+    'sends a logged-out visitor from %s to the login page, never calling anything but the silent-restore check',
     async (path) => {
       const api = stubApi([loginRoute, ...dataRoutes])
       renderApp(path)
 
       await screen.findByRole('heading', { name: 'Log in' })
-      expect(api.calls).toEqual([])
+      // The only call is the mount-time silent-restore attempt (ADR 0012),
+      // which fails here (nothing mocks /auth/refresh) - nothing protected,
+      // not even /projects, is ever requested for a logged-out visitor.
+      expect(api.paths()).toEqual(['/auth/refresh'])
       // Not even the navigation is shown to someone who isn't logged in.
       expect(screen.queryByRole('link', { name: 'Projects' })).toBeNull()
     },
@@ -142,7 +163,7 @@ describe('protected routes', () => {
 
 describe('logout', () => {
   it('clears the session: back to login, and no token on anything after', async () => {
-    const api = stubApi([loginRoute, ...dataRoutes])
+    const api = stubApi([loginRoute, ...dataRoutes, route('POST', '/auth/logout', { status: 204 })])
     renderApp('/projects', { session: adminSession })
     await screen.findByText('PRJ-000001')
     const callsBefore = api.calls.length
@@ -152,7 +173,8 @@ describe('logout', () => {
     await screen.findByRole('heading', { name: 'Log in' })
     expect(screen.getByText('You have been logged out.')).toBeTruthy()
     expect(screen.queryByText('Alex Admin')).toBeNull()
-    expect(api.calls.length).toBe(callsBefore) // nothing more is fetched
+    // The one new call is logout revoking the session server-side (ADR 0012).
+    expect(api.calls.length).toBe(callsBefore + 1)
 
     // The token itself is gone, not just hidden: any request made now goes out bare.
     await apiGet('/projects').catch(() => undefined)
@@ -327,5 +349,202 @@ describe('a role changed while already logged in', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
 
     expect(screen.queryByText('Your role was changed to FINANCE.')).toBeNull()
+  })
+})
+
+describe('silent restore on page load (ADR 0012)', () => {
+  it('restores the session from the refresh cookie, without ever showing the login page', async () => {
+    const api = stubApi([
+      route('POST', '/auth/refresh', {
+        body: {
+          token: 'tok-restored',
+          tokenType: 'Bearer',
+          expiresIn: 900,
+          idleTimeoutSeconds: 1800,
+          user: adminUser,
+        },
+      }),
+      ...dataRoutes,
+    ])
+    renderApp('/projects')
+
+    await screen.findByText('PRJ-000001')
+    expect(screen.queryByRole('heading', { name: 'Log in' })).toBeNull()
+    expect(api.calls[0]).toMatchObject({ method: 'POST', path: '/auth/refresh' })
+    const projectsCall = api.calls.find((c) => c.path === '/projects')
+    expect(projectsCall?.authorization).toBe('Bearer tok-restored')
+  })
+
+  it('shows the login page when there is no valid session to restore', async () => {
+    stubApi([route('POST', '/auth/refresh', { status: 401, body: { error: 'No valid refresh token' } })])
+    renderApp('/projects')
+
+    await screen.findByRole('heading', { name: 'Log in' })
+    // No "your session expired" notice - this visitor was never logged in
+    // on this page load, so there's nothing to report ending.
+    expect(screen.queryByText(/session expired/i)).toBeNull()
+  })
+})
+
+describe('a 401 mid-session (ADR 0012)', () => {
+  it('silently refreshes and retries the request, instead of ending the session', async () => {
+    let attempts = 0
+    const api = stubApi([
+      {
+        method: 'GET',
+        path: '/projects',
+        respond: () => {
+          attempts += 1
+          return attempts === 1 ? { status: 401, body: { error: 'Token has expired' } } : { body: [PROJECT] }
+        },
+      },
+      route('POST', '/auth/refresh', {
+        body: {
+          token: 'tok-refreshed',
+          tokenType: 'Bearer',
+          expiresIn: 900,
+          idleTimeoutSeconds: 1800,
+          user: adminUser,
+        },
+      }),
+    ])
+    renderApp('/projects', { session: adminSession })
+
+    await screen.findByText('PRJ-000001')
+    expect(screen.queryByText(/session expired/i)).toBeNull()
+    expect(api.calls.some((c) => c.path === '/auth/refresh')).toBe(true)
+    const projectCalls = api.calls.filter((c) => c.path === '/projects')
+    expect(projectCalls).toHaveLength(2)
+    expect(projectCalls[1].authorization).toBe('Bearer tok-refreshed')
+  })
+
+  it('ends the session if the refresh itself fails', async () => {
+    stubApi([
+      route('GET', '/projects', { status: 401, body: { error: 'Token has expired' } }),
+      route('POST', '/auth/refresh', { status: 401, body: { error: 'Session timed out from inactivity' } }),
+    ])
+    renderApp('/projects', { session: adminSession })
+
+    await screen.findByRole('heading', { name: 'Log in' })
+    expect(screen.getByText('Your session expired. Please log in again.')).toBeTruthy()
+  })
+})
+
+describe('proactive refresh and the idle warning (ADR 0012)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('refreshes proactively before the access token expires, only if there has been activity', async () => {
+    // The mount-time silent-restore call hits this same endpoint before
+    // login happens at all - it must fail (no cookie yet) so the login page
+    // actually renders. Only calls after that (the proactive refresh under
+    // test) should succeed.
+    let refreshCalls = 0
+    stubApi([
+      loginRoute,
+      ...dataRoutes,
+      {
+        method: 'POST',
+        path: '/auth/refresh',
+        respond: () => {
+          refreshCalls += 1
+          return refreshCalls === 1
+            ? { status: 401, body: { error: 'No valid refresh token' } }
+            : {
+                body: {
+                  token: 'tok-proactive',
+                  tokenType: 'Bearer',
+                  expiresIn: 900,
+                  idleTimeoutSeconds: 1800,
+                  user: adminUser,
+                },
+              }
+        },
+      },
+    ])
+    // Fake timers from before login, so the one-shot timers scheduleTimers
+    // sets up on login are themselves fake and controllable below -
+    // switching afterward would leave them as real, unadvanceable timers.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderApp('/login')
+    await screen.findByRole('heading', { name: 'Log in' })
+    logIn()
+    await screen.findByText('PRJ-000001')
+
+    fireEvent.click(document.body) // activity, after login
+
+    // The timer is scheduled off the login response's expiresIn (3600s via
+    // loginRoute), not the later /auth/refresh mock's - just past that,
+    // minus the 60s proactive buffer.
+    await vi.advanceTimersByTimeAsync(3600_000 - 60_000 + 1_000)
+
+    expect(refreshCalls).toBeGreaterThan(1)
+  })
+
+  it('does not refresh proactively if the tab has been idle', async () => {
+    const api = stubApi([loginRoute, ...dataRoutes])
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderApp('/login')
+    await screen.findByRole('heading', { name: 'Log in' })
+    logIn()
+    await screen.findByText('PRJ-000001')
+
+    // The mount-time silent restore (before login) already called /auth/refresh
+    // once; what matters here is that it isn't called again.
+    const refreshCallsBeforeIdling = api.paths('POST').filter((p) => p === '/auth/refresh').length
+
+    // No activity this time.
+    await vi.advanceTimersByTimeAsync(3600_000 - 60_000 + 1_000)
+
+    const refreshCallsAfterIdling = api.paths('POST').filter((p) => p === '/auth/refresh').length
+    expect(refreshCallsAfterIdling).toBe(refreshCallsBeforeIdling)
+  })
+
+  it('shows a warning before the idle timeout, and "Stay signed in" dismisses it by refreshing', async () => {
+    // Same reasoning as the proactive-refresh test above: the mount-time
+    // silent-restore call must fail first, so the login page actually shows.
+    let refreshCalls = 0
+    stubApi([
+      loginRoute,
+      ...dataRoutes,
+      {
+        method: 'POST',
+        path: '/auth/refresh',
+        respond: () => {
+          refreshCalls += 1
+          return refreshCalls === 1
+            ? { status: 401, body: { error: 'No valid refresh token' } }
+            : {
+                body: {
+                  token: 'tok-stayed',
+                  tokenType: 'Bearer',
+                  expiresIn: 900,
+                  idleTimeoutSeconds: 1800,
+                  user: adminUser,
+                },
+              }
+        },
+      },
+    ])
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    renderApp('/login')
+    await screen.findByRole('heading', { name: 'Log in' })
+    logIn()
+    await screen.findByText('PRJ-000001')
+
+    // Just past idleTimeoutSeconds (1800s) minus the 60s warning lead - and
+    // comfortably past the proactive-refresh point too, so this is purely
+    // about the warning, not a side effect of a proactive refresh resetting
+    // the idle clock first.
+    await vi.advanceTimersByTimeAsync(1800_000 - 60_000 + 1_000)
+
+    await screen.findByText(/logged out in about a minute/i)
+
+    const refreshCallsBeforeClick = refreshCalls
+    fireEvent.click(screen.getByRole('button', { name: 'Stay signed in' }))
+
+    await waitFor(() => expect(refreshCalls).toBeGreaterThan(refreshCallsBeforeClick))
+    await waitFor(() => expect(screen.queryByText(/logged out in about a minute/i)).toBeNull())
   })
 })

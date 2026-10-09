@@ -47,9 +47,17 @@ export interface AccessTokenClaims {
   /** The user id. */
   sub: string;
   role: UserRole;
-  /** Issued-at and expiry, seconds since the epoch. */
+  /** Issued-at and expiry, seconds since the epoch (standard JWT claims). */
   iat: number;
   exp: number;
+  /** Issued-at again, but milliseconds (ADR 0011) - the standard `iat`
+   * above is too coarse to reliably order against a password change that
+   * can land in the same second. */
+  iatMs: number;
+  /** The `UserSession` (ADR 0012) this token was minted for - lets the API
+   * reject it the instant that session is revoked, rather than waiting out
+   * the token's own short lifetime. */
+  sid: string;
 }
 
 /** Body of `POST /auth/login`. */
@@ -58,12 +66,24 @@ export interface LoginRequest {
   password: string;
 }
 
-/** Response of `POST /auth/login`. Send `token` as `Authorization: Bearer <token>`. */
+/**
+ * Response of `POST /auth/login` and `POST /auth/refresh` (ADR 0012 - same
+ * shape, since restoring a session on page load and refreshing one are the
+ * same operation from the caller's point of view). Send `token` as
+ * `Authorization: Bearer <token>`. A refresh-token cookie is set alongside
+ * this response; there is nothing about it in the body - it's httpOnly.
+ */
 export interface LoginResponse {
   token: string;
   tokenType: "Bearer";
-  /** Token lifetime in seconds. There is no refresh flow yet: log in again. */
+  /** Access token lifetime in seconds - short (minutes, not hours): refresh
+   * before it runs out, silently, via the cookie. */
   expiresIn: number;
+  /** How long the *session* tolerates no refresh at all before it can no
+   * longer be renewed (ADR 0012) - the web app uses this to time its idle
+   * warning and to decide whether it's worth attempting a proactive
+   * refresh at all. */
+  idleTimeoutSeconds: number;
   user: UserSummary;
 }
 

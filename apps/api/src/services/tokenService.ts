@@ -15,15 +15,20 @@ export interface Actor {
 }
 
 /**
- * `verifyAccessToken`'s result: an `Actor` plus when the token was issued.
- * `authenticate` passes `issuedAt` on to `resolveActor`, which rejects a
- * token issued before the user's last password reset (ADR 0011) - otherwise
- * identical to `Actor`, kept separate so `issuedAt` doesn't leak into
- * `req.actor`, which nothing past authentication needs it for.
+ * `verifyAccessToken`'s result: an `Actor` plus when the token was issued and
+ * which session minted it. `authenticate` passes both on to `resolveActor`,
+ * which rejects a token issued before the user's last password reset (ADR
+ * 0011) or whose session has since been revoked/expired (ADR 0012) - kept
+ * separate from `Actor` so neither leaks into `req.actor`, which nothing past
+ * authentication needs them for.
  */
 export interface VerifiedAccessToken extends Actor {
   /** Milliseconds since the epoch - see `signAccessToken`'s `iatMs` claim. */
   issuedAt: number;
+  /** The `UserSession` this access token was minted for (ADR 0012's `sid`
+   * claim) - lets `authenticate` reject it the instant that session is
+   * revoked, rather than waiting out its own short lifetime. */
+  sessionId: string;
 }
 
 export interface IssuedToken {
@@ -35,7 +40,7 @@ export interface IssuedToken {
 // Pinned on both sign and verify; never let the token choose its own algorithm.
 const ALGORITHM = "HS256";
 
-export function signAccessToken(actor: Actor): IssuedToken {
+export function signAccessToken(actor: Actor, sessionId: string): IssuedToken {
   const expiresIn = getAccessTokenTtlSeconds();
   const token = jwt.sign(
     {
@@ -46,6 +51,10 @@ export function signAccessToken(actor: Actor): IssuedToken {
       // back) - this custom claim is millisecond-precision, just for that
       // comparison in `resolveActor` (ADR 0011).
       iatMs: Date.now(),
+      // ADR 0012: makes logout (and a future "log out everywhere") take
+      // effect immediately instead of waiting for this token to expire on
+      // its own.
+      sid: sessionId,
     },
     getJwtSecret(),
     {
@@ -74,10 +83,17 @@ export function verifyAccessToken(token: string): VerifiedAccessToken {
     typeof payload.sub !== "string" ||
     payload.sub === "" ||
     typeof payload.iatMs !== "number" ||
+    typeof payload.sid !== "string" ||
+    payload.sid === "" ||
     !Object.values(UserRole).includes(payload.role as UserRole)
   ) {
     throw new UnauthorizedError("Invalid token");
   }
 
-  return { id: payload.sub, role: payload.role as UserRole, issuedAt: payload.iatMs as number };
+  return {
+    id: payload.sub,
+    role: payload.role as UserRole,
+    issuedAt: payload.iatMs,
+    sessionId: payload.sid,
+  };
 }

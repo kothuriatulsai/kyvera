@@ -60,8 +60,48 @@ model User {
   techPackConfirmations    TechPackConfirmation[] @relation("TechPackConfirmer")
   techPackApprovals        TechPackApproval[]     @relation("TechPackApprover")
   attachmentsUploaded      Attachment[]           @relation("AttachmentUploader")
+  sessions                 UserSession[]
 
   @@map("users")
+}
+
+// A refresh-token session (ADR 0012). Named UserSession, not Session, so it
+// isn't confused with apps/web's own `Session` type (the in-memory
+// access-token + user pair) when both come up in the same discussion -
+// they're different concepts in different apps.
+//
+// onDelete: Cascade, not Restrict like the SOP domain (ADR 0006, point 9) -
+// this is ephemeral auth state, not an audit trail; there is nothing here
+// worth blocking a (currently nonexistent) user delete over.
+model UserSession {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @map("user_id") @db.Uuid
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // SHA-256 of the current rotating secret - not argon2: that algorithm's
+  // slow, memory-hard hashing exists to resist guessing a human password,
+  // which is irrelevant for a 256-bit random value, and would needlessly
+  // slow down every refresh call.
+  tokenHash         String    @map("token_hash")
+  // The hash this session had *before* its most recent rotation, and when
+  // that rotation happened. Lets a second tab that raced the first (same
+  // old secret, already rotated away by the time this one arrives) succeed
+  // instead of being treated as token reuse - but only within a short grace
+  // window (see ROTATION_GRACE_WINDOW_MS in sessionService.ts), so an
+  // actually-stolen, already-superseded token still gets caught.
+  previousTokenHash String?   @map("previous_token_hash")
+  rotatedAt         DateTime? @map("rotated_at")
+  userAgent         String?   @map("user_agent")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  // Updated only on a successful refresh, not on every API call (ADR 0012) -
+  // idle timeout measures how long it's been since the session was last
+  // actively kept alive, not general API traffic.
+  lastUsedAt        DateTime  @default(now()) @map("last_used_at")
+  // Absolute limit, fixed at creation, never extended by rotation.
+  expiresAt         DateTime  @map("expires_at")
+  revokedAt         DateTime? @map("revoked_at")
+
+  @@index([userId])
+  @@map("user_sessions")
 }
 
 // =============================================================================

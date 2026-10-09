@@ -19,11 +19,15 @@ export interface AuthContextValue {
   dismissRoleChangeNotice: () => void
   /** Rejects with an `ApiError` on bad credentials or an unreachable API. */
   login: (email: string, password: string) => Promise<void>
-  /** Clears the in-memory token. There is no server-side revocation to call. */
+  /** Revokes the session (ADR 0012) and clears local state. */
   logout: () => void
   /** Replaces the session's user object - after the user changes their own
    * password, or after a background resync picks up fresher data. */
   applyUserUpdate: (user: UserSummary) => void
+  /** True once idle time is within a minute of ending the session (ADR 0012). */
+  idleWarningVisible: boolean
+  /** Treated as activity: refreshes immediately and hides the warning. */
+  staySignedIn: () => void
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null)

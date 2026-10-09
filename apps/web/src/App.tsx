@@ -3,6 +3,7 @@ import { RequireAuth } from './auth/RequireAuth'
 import { RequireRole } from './auth/RequireRole'
 import { useAuth } from './auth/useAuth'
 import { AppHeader } from './components/AppHeader'
+import { IdleWarningBanner } from './components/IdleWarningBanner'
 import { NotFoundPage } from './components/NotFoundPage'
 import { AccountPage } from './pages/AccountPage'
 import { LoginPage } from './pages/LoginPage'
@@ -32,6 +33,7 @@ function App() {
       <AppHeader />
       <main>
         <RoleChangeBanner />
+        <IdleWarningBanner />
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           {/* Everything else needs a logged-in user, unknown paths included, so a
