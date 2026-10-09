@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { USER_ROLES, type UserRole, type UserSummary } from '@kyvera/shared-types'
+import { USER_ROLES, type ProjectMembership, type UserRole, type UserSummary } from '@kyvera/shared-types'
 import { ApiError } from '../api/client'
-import { changeUserRole, deactivateUser, reactivateUser, resetPassword } from '../api/users'
+import { changeUserRole, deactivateUser, fetchProjectsForUser, reactivateUser, resetPassword } from '../api/users'
 import { formatDate } from '../lib/format'
 
 interface UserRowProps {
@@ -28,6 +28,22 @@ export function UserRow({ user, onChanged }: UserRowProps) {
   }
 
   const [temporaryPassword, setTemporaryPassword] = useState<string | null>(null)
+
+  const [projects, setProjects] = useState<ProjectMembership[] | null>(null)
+  const [projectsError, setProjectsError] = useState<string | null>(null)
+
+  async function handleToggleProjects() {
+    if (projects !== null) {
+      setProjects(null)
+      return
+    }
+    setProjectsError(null)
+    try {
+      setProjects(await fetchProjectsForUser(user.id))
+    } catch (err) {
+      setProjectsError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.')
+    }
+  }
 
   async function run(action: () => Promise<UserSummary>) {
     setBusy(true)
@@ -107,6 +123,25 @@ export function UserRow({ user, onChanged }: UserRowProps) {
       </td>
       <td>{user.isActive ? 'Active' : 'Inactive'}</td>
       <td>{formatDate(user.createdAt)}</td>
+      <td>
+        <button type="button" onClick={handleToggleProjects}>
+          {projects === null ? 'Show' : 'Hide'}
+        </button>
+        {projectsError && (
+          <p role="alert" className="error">
+            {projectsError}
+          </p>
+        )}
+        {projects !== null && (
+          <ul>
+            {projects.length === 0 ? (
+              <li className="muted">No projects</li>
+            ) : (
+              projects.map((membership) => <li key={membership.id}>{membership.project.code}</li>)
+            )}
+          </ul>
+        )}
+      </td>
       <td className="actions">
         {user.isActive ? (
           <button type="button" disabled={busy} onClick={() => run(() => deactivateUser(user.id))}>

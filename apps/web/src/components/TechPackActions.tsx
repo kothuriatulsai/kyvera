@@ -41,8 +41,12 @@ export function TechPackActions({ techPack, onChanged }: TechPackActionsProps) {
   const showUpload = canUploadVersion(role, techPack)
   const showConfirm = latest !== undefined && canConfirm(role, techPack, latest)
   const showDecide = latest !== undefined && canDecide(role, techPack, latest)
+  // ADR 0013: Management's own view only ever shows this once a newer
+  // version exists but isn't confirmed yet - everyone else's `versions`
+  // array is the real thing, so this is never true for them.
+  const showPendingNewerVersionNotice = role === 'MANAGEMENT' && techPack.hasPendingNewerVersion === true
 
-  if (!showUpload && !showConfirm && !showDecide && !lastDecision) return null
+  if (!showUpload && !showConfirm && !showDecide && !lastDecision && !showPendingNewerVersionNotice) return null
 
   async function handleDecided(response: DecideTechPackVersionResponse) {
     setLastDecision(response)
@@ -72,6 +76,8 @@ export function TechPackActions({ techPack, onChanged }: TechPackActionsProps) {
           )}
         </div>
       )}
+
+      {showPendingNewerVersionNotice && <p className="notice">A newer version is under Engineering review.</p>}
 
       {showUpload && (
         <UploadVersionControl

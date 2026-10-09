@@ -1,6 +1,7 @@
 import type {
   ChangeUserRoleRequest,
   CreateUserRequest,
+  ProjectMembership,
   TemporaryPasswordResponse,
   UserSummary,
 } from '@kyvera/shared-types'
@@ -20,3 +21,5 @@ export const deactivateUser = (id: string) => apiPost<UserSummary>(`/users/${enc
 export const reactivateUser = (id: string) => apiPost<UserSummary>(`/users/${enc(id)}/reactivate`)
 
 export const resetPassword = (id: string) => apiPost<TemporaryPasswordResponse>(`/users/${enc(id)}/reset-password`)
+
+export const fetchProjectsForUser = (id: string) => apiGet<ProjectMembership[]>(`/users/${enc(id)}/projects`)

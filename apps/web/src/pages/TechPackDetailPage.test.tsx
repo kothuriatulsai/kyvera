@@ -439,6 +439,14 @@ describe('Decision control', () => {
     expect(screen.queryByRole('heading', { name: 'Decision' })).toBeNull()
   })
 
+  it('is hidden and explained when hasPendingNewerVersion is set (ADR 0013)', async () => {
+    stubTechPack(techPack({ versions: [confirmedVersion], hasPendingNewerVersion: true }))
+    renderApp(TECH_PACK, { session: managementSession })
+
+    await screen.findByText('A newer version is under Engineering review.')
+    expect(screen.queryByRole('heading', { name: 'Decision' })).toBeNull()
+  })
+
   it('cannot reject without a reason', async () => {
     stubTechPack(techPack({ versions: [confirmedVersion] }))
     renderApp(TECH_PACK, { session: managementSession })

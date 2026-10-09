@@ -26,6 +26,7 @@ export function UsersPage() {
                   <th>Role</th>
                   <th>Status</th>
                   <th>Created</th>
+                  <th>Projects</th>
                   <th>Actions</th>
                 </tr>
               </thead>

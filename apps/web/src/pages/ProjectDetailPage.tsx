@@ -4,10 +4,11 @@ import { fetchProtoRequests } from '../api/protoRequests'
 import { fetchTechPacks } from '../api/techPacks'
 import { AsyncView } from '../components/AsyncView'
 import { CreateTechPackForm } from '../components/CreateTechPackForm'
+import { ProjectTeam } from '../components/ProjectTeam'
 import { useAuth } from '../auth/useAuth'
 import { useAsync } from '../hooks/useAsync'
 import { formatDate, PROJECT_PHASE_LABELS, PROJECT_STATUS_LABELS } from '../lib/format'
-import { canCreateTechPack } from '../lib/sopPermissions'
+import { canCreateTechPack, canManageMembers, canSeeTechPacksSection } from '../lib/sopPermissions'
 import { successorOf, sortTechPacks } from '../lib/techPacks'
 
 export function ProjectDetailPage() {
@@ -54,40 +55,50 @@ export function ProjectDetailPage() {
               </div>
             </dl>
 
-            <h2>Tech packs</h2>
-            {techPacks.length === 0 ? (
-              <p className="muted">No tech packs yet.</p>
-            ) : (
-              <ul className="versions">
-                {techPacks.map((techPack) => {
-                  const voided = techPack.voidedAt !== null
-                  const successor = voided ? successorOf(techPack, techPacks) : undefined
-                  return (
-                    <li key={techPack.id} className={voided ? 'muted' : undefined}>
-                      <Link to={`/tech-packs/${techPack.id}`}>{techPack.code}</Link>
-                      {voided && (
-                        <>
-                          {' '}
-                          — voided
-                          {successor && (
+            <ProjectTeam projectId={project.id} canManage={Boolean(session && canManageMembers(session.user.role))} />
+
+            {/* FINANCE/MERCHANDISER never browse Tech Packs (ADR 0013) - the
+                API already sends them an empty list either way, but showing
+                "No tech packs yet" would wrongly imply there genuinely are
+                none, rather than that this role just can't see them. */}
+            {session && canSeeTechPacksSection(session.user.role) && (
+              <>
+                <h2>Tech packs</h2>
+                {techPacks.length === 0 ? (
+                  <p className="muted">No tech packs yet.</p>
+                ) : (
+                  <ul className="versions">
+                    {techPacks.map((techPack) => {
+                      const voided = techPack.voidedAt !== null
+                      const successor = voided ? successorOf(techPack, techPacks) : undefined
+                      return (
+                        <li key={techPack.id} className={voided ? 'muted' : undefined}>
+                          <Link to={`/tech-packs/${techPack.id}`}>{techPack.code}</Link>
+                          {voided && (
                             <>
                               {' '}
-                              — superseded by <Link to={`/tech-packs/${successor.id}`}>{successor.code}</Link>
+                              — voided
+                              {successor && (
+                                <>
+                                  {' '}
+                                  — superseded by <Link to={`/tech-packs/${successor.id}`}>{successor.code}</Link>
+                                </>
+                              )}
                             </>
                           )}
-                        </>
-                      )}
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
 
-            {session && canCreateTechPack(session.user.role, project, techPacks) && (
-              <CreateTechPackForm
-                projectId={project.id}
-                onCreated={(techPack) => navigate(`/tech-packs/${techPack.id}`)}
-              />
+                {canCreateTechPack(session.user.role, project, techPacks) && (
+                  <CreateTechPackForm
+                    projectId={project.id}
+                    onCreated={(techPack) => navigate(`/tech-packs/${techPack.id}`)}
+                  />
+                )}
+              </>
             )}
 
             <h2>Proto requests</h2>
