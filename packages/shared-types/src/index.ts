@@ -121,6 +121,41 @@ export interface CreateProjectRequest {
   productCategory?: string;
 }
 
+/**
+ * ADR 0013, layer A: who may see a Project at all. `ADMIN`/`PMO`/
+ * `MANAGEMENT` see every Project regardless of this table - everyone else
+ * needs a row here. Shape of `GET /projects/:id/members` (one per member)
+ * and the response of `POST /projects/:id/members`.
+ */
+export interface ProjectMember {
+  id: string;
+  projectId: string;
+  userId: string;
+  user: UserSummary;
+  addedById: string;
+  addedBy: UserSummary;
+  addedAt: string;
+}
+
+/** Body of `POST /projects/:id/members`. PMO or ADMIN only; the target must
+ * be active and not a see-all role (ADMIN/PMO/MANAGEMENT already see every
+ * Project, so adding one would be a no-op roster entry). */
+export interface AddProjectMemberRequest {
+  userId: string;
+}
+
+/** Shape of `GET /users/:id/projects` (ADR 0013's "other direction" of
+ * `ProjectMember`, shown on the Users page) - one entry per Project the
+ * user is a member of. */
+export interface ProjectMembership {
+  id: string;
+  projectId: string;
+  project: { id: string; code: string; name: string };
+  userId: string;
+  addedById: string;
+  addedAt: string;
+}
+
 /** File metadata (ADR 0008) - bytes are reachable only through the
  * authenticated `GET /attachments/:id/download`, never a URL on this object. */
 export interface Attachment {
@@ -219,8 +254,16 @@ export interface TechPackDetail {
   supersedes: { id: string; code: string } | null;
   /** The TechPack that replaced this one, if Management rejected it. */
   supersededBy: { id: string; code: string } | null;
-  /** Newest first. */
+  /** Newest first. For MANAGEMENT, narrowed to confirmed versions only
+   * (ADR 0013) - not necessarily every version that exists. */
   versions: TechPackVersion[];
+  /** MANAGEMENT only (ADR 0013): true if a version newer than any shown
+   * above exists but isn't confirmed yet - absent/false for every other
+   * role, which always sees the real latest version. The web app uses this
+   * to hide the decision form and explain why, rather than letting Management
+   * decide on a version that `decideTechPackVersion` would refuse anyway
+   * (409 - no longer the latest). */
+  hasPendingNewerVersion?: boolean;
 }
 
 /** Response of `POST /tech-packs/:id/versions/:versionNumber/decision`. On
@@ -250,8 +293,14 @@ export interface TechPackListItem {
   supersedesId: string | null;
 }
 
-/** Shape of `GET /proto-requests`, `GET /proto-requests/:id`, and the
- * `protoRequest` field of `POST .../decision`'s response when approved. */
+/**
+ * Shape of `GET /proto-requests`, `GET /proto-requests/:id`, and the
+ * `protoRequest` field of `POST .../decision`'s response when approved.
+ * `techPackVersion` carries the pinned version's own files and approval
+ * directly (ADR 0013) - Finance/Merchandiser's only lens into a Tech Pack
+ * is through this record, so it has to be self-contained; they can't fetch
+ * `GET /tech-packs/:id` to fill in the rest themselves.
+ */
 export interface ProtoRequest {
   id: string;
   code: string;
@@ -262,6 +311,9 @@ export interface ProtoRequest {
     id: string;
     versionNumber: number;
     techPack: { id: string; code: string };
+    /** Oldest first. */
+    attachments: Attachment[];
+    approval: TechPackApproval | null;
   };
   createdAt: string;
 }

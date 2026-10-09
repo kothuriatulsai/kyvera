@@ -4,6 +4,8 @@ import * as techPackVersionRepository from "../repositories/techPackVersionRepos
 import * as techPackRemarkRepository from "../repositories/techPackRemarkRepository";
 import * as techPackConfirmationRepository from "../repositories/techPackConfirmationRepository";
 import { prisma } from "../repositories/prismaClient";
+import type { Actor } from "./tokenService";
+import * as visibility from "./visibility";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
 
 const MAX_REMARK_BODY_LENGTH = 5000;
@@ -29,11 +31,13 @@ function findVersionOrThrow(techPackId: string, versionNumber: number, tx?: Pris
 // refused only once the TechPack itself is voided, since a voided TechPack's
 // review is over.
 export async function addTechPackRemark(
-  authorId: string,
+  actor: Actor,
   techPackId: string,
   versionNumber: number,
   input: AddTechPackRemarkInput,
 ) {
+  await visibility.assertTechPackVisibleById(actor, techPackId);
+
   const body = input.body.trim();
   if (body === "") {
     throw new ValidationError("body is required and must be a non-empty string");
@@ -49,13 +53,21 @@ export async function addTechPackRemark(
 
   return techPackRemarkRepository.create({
     techPackVersion: { connect: { id: version.id } },
-    author: { connect: { id: authorId } },
+    author: { connect: { id: actor.id } },
     body,
   });
 }
 
-export async function listTechPackRemarks(techPackId: string, versionNumber: number) {
+/** ADR 0013: "no remarks" is a content rule, not a visibility one, for the
+ * one role it applies to - a Management-visible (confirmed) version is
+ * still a 404 if it isn't visible at all, but once it is, the remarks come
+ * back empty rather than the request failing. */
+export async function listTechPackRemarks(actor: Actor, techPackId: string, versionNumber: number) {
   const version = await findVersionOrThrow(techPackId, versionNumber);
+  await visibility.assertVersionBrowsable(actor, version.techPack, version);
+  if (!visibility.remarksVisibleTo(actor.role)) {
+    return [];
+  }
   return techPackRemarkRepository.findByVersion(version.id);
 }
 
@@ -63,11 +75,10 @@ export async function listTechPackRemarks(techPackId: string, versionNumber: num
 // 4/CLAUDE.md's decided locking rule) so this can't race a concurrent upload
 // that would otherwise make `versionNumber` stop being the latest version
 // underneath it, or a concurrent confirm of the same version.
-export async function confirmTechPackVersion(
-  confirmedById: string,
-  techPackId: string,
-  versionNumber: number,
-) {
+export async function confirmTechPackVersion(actor: Actor, techPackId: string, versionNumber: number) {
+  await visibility.assertTechPackVisibleById(actor, techPackId);
+  const confirmedById = actor.id;
+
   try {
     return await prisma.$transaction(async (tx) => {
       const techPack = await techPackRepository.lockById(techPackId, tx);

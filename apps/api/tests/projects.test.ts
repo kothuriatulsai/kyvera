@@ -3,6 +3,7 @@ import type { UserRole } from "@prisma/client";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
 import { cleanupTestUsers, createTestUser } from "./helpers/auth";
+import { addMember } from "./helpers/membership";
 
 const app = createApp();
 
@@ -21,6 +22,11 @@ async function createProject(
 }
 
 afterAll(async () => {
+  // ProjectMember/ProjectMemberHistory are onDelete: Restrict too (ADR
+  // 0013) - including the creator's own auto-added membership row, so this
+  // runs even for a test that never calls addMember directly.
+  await prisma.projectMemberHistory.deleteMany({ where: { projectId: { in: createdProjectIds } } });
+  await prisma.projectMember.deleteMany({ where: { projectId: { in: createdProjectIds } } });
   await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
   await cleanupTestUsers();
   await prisma.$disconnect();
@@ -93,19 +99,58 @@ describe("POST /projects", () => {
 });
 
 describe("GET /projects and /projects/:id", () => {
-  it("lists projects and reads one back, for any authenticated role", async () => {
+  it("lists projects and reads one back, for a see-all role (ADR 0013)", async () => {
     const { agent: pmo } = await createTestUser(app, "PMO");
     const created = await createProject(pmo, { name: "Readable Project", productName: "Widget" });
+
+    // MANAGEMENT sees every Project regardless of membership.
+    const { agent: management } = await createTestUser(app, "MANAGEMENT");
+
+    const list = await management.get("/projects");
+    expect(list.status).toBe(200);
+    expect(list.body.some((p: { id: string }) => p.id === created.body.id)).toBe(true);
+
+    const detail = await management.get(`/projects/${created.body.id}`);
+    expect(detail.status).toBe(200);
+    expect(detail.body.id).toBe(created.body.id);
+  });
+
+  it("hides a Project from a non-member, non-see-all role (ADR 0013)", async () => {
+    const { agent: pmo } = await createTestUser(app, "PMO");
+    const created = await createProject(pmo, { name: "Members Only", productName: "Widget" });
 
     const { agent: finance } = await createTestUser(app, "FINANCE");
 
     const list = await finance.get("/projects");
     expect(list.status).toBe(200);
+    expect(list.body.some((p: { id: string }) => p.id === created.body.id)).toBe(false);
+
+    const detail = await finance.get(`/projects/${created.body.id}`);
+    expect(detail.status).toBe(404);
+  });
+
+  it("shows a Project once its viewer is added as a member (ADR 0013)", async () => {
+    const { agent: pmo } = await createTestUser(app, "PMO");
+    const created = await createProject(pmo, { name: "Now Visible", productName: "Widget" });
+
+    const { agent: finance, id: financeId } = await createTestUser(app, "FINANCE");
+    await addMember(created.body.id, financeId);
+
+    const list = await finance.get("/projects");
     expect(list.body.some((p: { id: string }) => p.id === created.body.id)).toBe(true);
 
     const detail = await finance.get(`/projects/${created.body.id}`);
     expect(detail.status).toBe(200);
     expect(detail.body.id).toBe(created.body.id);
+  });
+
+  it("automatically adds the creator as a member", async () => {
+    const { agent: pmo, id: pmoId } = await createTestUser(app, "PMO");
+    const created = await createProject(pmo, { name: "Creator Membership", productName: "Widget" });
+
+    const members = await pmo.get(`/projects/${created.body.id}/members`);
+    expect(members.status).toBe(200);
+    expect(members.body.some((m: { userId: string }) => m.userId === pmoId)).toBe(true);
   });
 
   it("404s an unknown (but well-formed) id", async () => {

@@ -17,17 +17,17 @@ function filesFromRequest(req: Request): UploadedFile[] {
 
 export const listTechPacks = asyncHandler(async (req: Request, res: Response) => {
   const projectId = typeof req.query.projectId === "string" ? req.query.projectId : undefined;
-  res.json(await techPackService.listTechPacks(projectId));
+  res.json(await techPackService.listTechPacks(requireActor(req), projectId));
 });
 
 export const getTechPack = asyncHandler(async (req: Request, res: Response) => {
-  res.json(await techPackService.getTechPack(req.params.id));
+  res.json(await techPackService.getTechPack(requireActor(req), req.params.id));
 });
 
 export const createTechPack = asyncHandler(async (req: Request, res: Response) => {
   const actor = requireActor(req);
   const body = req.body as Record<string, unknown>;
-  const techPack = await techPackService.createTechPack(actor.id, {
+  const techPack = await techPackService.createTechPack(actor, {
     projectId: requireString(body, "projectId"),
     notes: optionalString(body, "notes"),
     files: filesFromRequest(req),
@@ -38,7 +38,7 @@ export const createTechPack = asyncHandler(async (req: Request, res: Response) =
 export const uploadTechPackVersion = asyncHandler(async (req: Request, res: Response) => {
   const actor = requireActor(req);
   const body = req.body as Record<string, unknown>;
-  const techPack = await techPackService.uploadTechPackVersion(actor.id, req.params.id, {
+  const techPack = await techPackService.uploadTechPackVersion(actor, req.params.id, {
     notes: optionalString(body, "notes"),
     files: filesFromRequest(req),
   });

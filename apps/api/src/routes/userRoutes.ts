@@ -17,3 +17,7 @@ userRoutes.patch("/:id/role", userController.changeRole);
 userRoutes.post("/:id/deactivate", userController.deactivateUser);
 userRoutes.post("/:id/reactivate", userController.reactivateUser);
 userRoutes.post("/:id/reset-password", userController.resetPassword);
+
+// ADR 0013's "other direction" of Project membership - the Users page shows
+// each user's Projects the same way a Project's detail page shows its Team.
+userRoutes.get("/:id/projects", userController.listProjectsForUser);

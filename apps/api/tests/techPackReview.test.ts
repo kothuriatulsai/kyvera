@@ -4,6 +4,7 @@ import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
 import { attachmentStorage } from "../src/services/storage";
 import { cleanupTestUsers, createTestUser } from "./helpers/auth";
+import { addMember } from "./helpers/membership";
 
 const app = createApp();
 
@@ -33,6 +34,8 @@ afterAll(async () => {
   });
   await prisma.techPackVersion.deleteMany({ where: { techPackId: { in: createdTechPackIds } } });
   await prisma.techPack.deleteMany({ where: { id: { in: createdTechPackIds } } });
+  await prisma.projectMemberHistory.deleteMany({ where: { projectId: { in: createdProjectIds } } });
+  await prisma.projectMember.deleteMany({ where: { projectId: { in: createdProjectIds } } });
   await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
   await cleanupTestUsers();
   await prisma.$disconnect();
@@ -73,16 +76,23 @@ function confirmPath(techPackId: string, versionNumber: number | string) {
 
 async function setUpVersion1(designerRole: UserRole = "PRODUCT_DESIGNER") {
   const { agent: pmo } = await createTestUser(app, "PMO");
-  const { agent: designer } = await createTestUser(app, designerRole);
+  const { agent: designer, id: designerId } = await createTestUser(app, designerRole);
   const project = await createProject(pmo);
+  await addMember(project.id, designerId);
   const created = await createTechPack(designer, project.id);
-  return { designer, techPackId: created.body.id as string, techPackCode: created.body.code as string };
+  return {
+    designer,
+    projectId: project.id,
+    techPackId: created.body.id as string,
+    techPackCode: created.body.code as string,
+  };
 }
 
 describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
   it("adds a remark, trimmed, with the author's safe shape", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(remarksPath(techPackId, 1)).send({ body: "  please revise the BOM  " });
 
@@ -116,8 +126,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
   );
 
   it("rejects a blank body", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(remarksPath(techPackId, 1)).send({ body: "   " });
 
@@ -125,8 +136,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
   });
 
   it("rejects a body over the max length", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(remarksPath(techPackId, 1)).send({ body: "x".repeat(5001) });
 
@@ -134,8 +146,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
   });
 
   it("refuses a new remark on a voided TechPack", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
     await prisma.techPack.update({
       where: { id: techPackId },
       data: { voidedAt: new Date(), voidReason: "test setup" },
@@ -147,9 +160,10 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
   });
 
   it("is allowed on a non-latest version - review history stays discussable", async () => {
-    const { techPackId, designer } = await setUpVersion1();
+    const { projectId, techPackId, designer } = await setUpVersion1();
     await uploadVersion(designer, techPackId);
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(remarksPath(techPackId, 1)).send({ body: "about v1 specifically" });
 
@@ -167,8 +181,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
   });
 
   it("404s an unknown version number", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(remarksPath(techPackId, 99)).send({ body: "hello" });
 
@@ -176,8 +191,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
   });
 
   it("404s a malformed version number rather than erroring", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(remarksPath(techPackId, "not-a-number")).send({ body: "hello" });
 
@@ -186,24 +202,36 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
 });
 
 describe("GET /tech-packs/:id/versions/:versionNumber/remarks", () => {
-  it("lists remarks oldest first, for any authenticated role", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
-    const { agent: finance } = await createTestUser(app, "FINANCE");
+  it("lists remarks oldest first, for a member who may browse them", async () => {
+    const { projectId, techPackId, designer } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
     await engineering.post(remarksPath(techPackId, 1)).send({ body: "first" });
     await engineering.post(remarksPath(techPackId, 1)).send({ body: "second" });
 
-    const res = await finance.get(remarksPath(techPackId, 1));
+    // The designer (set up as a member in setUpVersion1) reads them back -
+    // FINANCE/MERCHANDISER never browse remarks at all (ADR 0013), so they
+    // aren't a fitting "any authenticated role" reader here any more.
+    const res = await designer.get(remarksPath(techPackId, 1));
 
     expect(res.status).toBe(200);
     expect(res.body.map((r: { body: string }) => r.body)).toEqual(["first", "second"]);
   });
 
   it("404s an unknown version number", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: finance } = await createTestUser(app, "FINANCE");
+    const { designer, techPackId } = await setUpVersion1();
 
-    const res = await finance.get(remarksPath(techPackId, 99));
+    const res = await designer.get(remarksPath(techPackId, 99));
+
+    expect(res.status).toBe(404);
+  });
+
+  it("404s for FINANCE/MERCHANDISER even as a member - they never browse Tech Packs (ADR 0013)", async () => {
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: finance, id: financeId } = await createTestUser(app, "FINANCE");
+    await addMember(projectId, financeId);
+
+    const res = await finance.get(remarksPath(techPackId, 1));
 
     expect(res.status).toBe(404);
   });
@@ -211,8 +239,9 @@ describe("GET /tech-packs/:id/versions/:versionNumber/remarks", () => {
 
 describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   it("confirms the latest version, with the confirmer's safe shape", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(confirmPath(techPackId, 1)).send({});
 
@@ -249,8 +278,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   });
 
   it("404s an unknown version number", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(confirmPath(techPackId, 99)).send({});
 
@@ -258,8 +288,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   });
 
   it("refuses to confirm a voided TechPack", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
     await prisma.techPack.update({
       where: { id: techPackId },
       data: { voidedAt: new Date(), voidReason: "test setup" },
@@ -271,8 +302,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   });
 
   it("refuses to confirm once the TechPack already has an approved version", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
     const { id: managementUserId } = await createTestUser(app, "MANAGEMENT");
     const techPack = await prisma.techPack.findUniqueOrThrow({
       where: { id: techPackId },
@@ -292,9 +324,10 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   });
 
   it("refuses to confirm a version that is no longer the latest", async () => {
-    const { techPackId, designer } = await setUpVersion1();
+    const { projectId, techPackId, designer } = await setUpVersion1();
     await uploadVersion(designer, techPackId);
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const res = await engineering.post(confirmPath(techPackId, 1)).send({});
 
@@ -302,8 +335,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   });
 
   it("refuses to confirm the same version twice", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const first = await engineering.post(confirmPath(techPackId, 1)).send({});
     expect(first.status).toBe(201);
@@ -314,8 +348,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   });
 
   it("lets exactly one of two concurrent confirms win for the same version", async () => {
-    const { techPackId } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const [a, b] = await Promise.allSettled([
       engineering.post(confirmPath(techPackId, 1)).send({}),
@@ -329,8 +364,9 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   });
 
   it("leaves a later version unconfirmed after confirming an earlier one", async () => {
-    const { techPackId, designer } = await setUpVersion1();
-    const { agent: engineering } = await createTestUser(app, "ENGINEERING");
+    const { projectId, techPackId, designer } = await setUpVersion1();
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    await addMember(projectId, engineeringId);
 
     const confirmed = await engineering.post(confirmPath(techPackId, 1)).send({});
     expect(confirmed.status).toBe(201);
