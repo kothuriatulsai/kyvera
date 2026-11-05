@@ -39,7 +39,14 @@ const loginRoute: MockRoute = {
       : { status: 401, body: { error: 'Invalid email or password' } },
 }
 
-const dataRoutes: MockRoute[] = [route('GET', '/projects', { body: [PROJECT] })]
+// '/' is the home page (ADR 0014's My tasks), reached after every login/
+// logout/refresh flow below - stubbed empty so AppHeader's background
+// polling and MyTasksPage's own fetch both resolve cleanly, without this
+// file needing to care about task content.
+const dataRoutes: MockRoute[] = [
+  route('GET', '/projects', { body: [PROJECT] }),
+  route('GET', '/me/tasks', { body: [] }),
+]
 
 function logIn(password = 'right') {
   fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'admin@kyvera.dev' } })
@@ -48,7 +55,7 @@ function logIn(password = 'right') {
 }
 
 describe('login', () => {
-  it('logs in, goes to the projects page, and sends the token from then on', async () => {
+  it('logs in, lands on My tasks, and sends the token from then on', async () => {
     const api = stubApi([loginRoute, ...dataRoutes])
     renderApp('/login')
     // The mount-time silent-restore check (ADR 0012) runs first, finds no
@@ -58,8 +65,7 @@ describe('login', () => {
 
     logIn()
 
-    await screen.findByText('PRJ-000001')
-    expect(screen.getByRole('heading', { name: 'Projects' })).toBeTruthy()
+    await screen.findByRole('heading', { name: 'My tasks' })
     // The login request itself carries no token; everything after it does.
     const loginCall = api.calls.find((c) => c.path === '/auth/login')!
     expect(loginCall).toMatchObject({ method: 'POST', path: '/auth/login', authorization: null })
@@ -77,7 +83,7 @@ describe('login', () => {
     await screen.findByRole('heading', { name: 'Log in' })
 
     logIn()
-    await screen.findByText('PRJ-000001')
+    await screen.findByRole('heading', { name: 'My tasks' })
 
     expect(localStorage.length).toBe(0)
     expect(sessionStorage.length).toBe(0)
@@ -118,7 +124,7 @@ describe('login', () => {
     stubApi(dataRoutes)
     renderApp('/login', { session: adminSession })
 
-    await screen.findByText('PRJ-000001')
+    await screen.findByRole('heading', { name: 'My tasks' })
     expect(screen.queryByRole('heading', { name: 'Log in' })).toBeNull()
   })
 })
@@ -184,7 +190,7 @@ describe('logout', () => {
     // A later login starts from a clean slate: the token in use is the new one, not
     // the old one, and nothing sends the old one.
     logIn()
-    await screen.findByText('PRJ-000001')
+    await screen.findByRole('heading', { name: 'My tasks' })
     const after = api.calls.slice(callsAfterProbe)
     expect(after.some((c) => c.authorization === 'Bearer tok-admin')).toBe(false)
     expect(after.filter((c) => c.path !== '/auth/login').every((c) => c.authorization === 'Bearer tok-1')).toBe(true)
@@ -199,7 +205,7 @@ describe('logout', () => {
     await screen.findByRole('heading', { name: 'Log in' })
     logIn()
 
-    await screen.findByRole('heading', { name: 'Projects' })
+    await screen.findByRole('heading', { name: 'My tasks' })
     expect(screen.queryByRole('heading', { name: 'Proto Requests' })).toBeNull()
   })
 })
@@ -207,7 +213,7 @@ describe('logout', () => {
 describe('an expired or invalid token (a 401 from the API)', () => {
   it('sends the user to login with an explanation, instead of a broken page', async () => {
     stubApi([
-      route('GET', '/projects', { status: 401, body: { error: 'Token has expired' } }),
+      route('GET', '/me/tasks', { status: 401, body: { error: 'Token has expired' } }),
       loginRoute,
     ])
     renderApp('/', { session: adminSession })
@@ -283,7 +289,7 @@ describe('a forced password change (ADR 0011)', () => {
   it('lets them change it, then navigates away and unblocks the rest of the app', async () => {
     const api = stubApi([
       route('POST', '/auth/change-password', { body: { ...adminUser, mustChangePassword: false } }),
-      route('GET', '/projects', { body: [] }),
+      route('GET', '/me/tasks', { body: [] }),
     ])
     renderApp('/projects', { session: mustChangeSession })
     await screen.findByRole('heading', { name: 'My account' })
@@ -292,7 +298,8 @@ describe('a forced password change (ADR 0011)', () => {
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-real-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Change password' }))
 
-    await screen.findByText('No projects yet.')
+    // AccountPage navigates to '/' once mustChangePassword clears (ADR 0014's home).
+    await screen.findByRole('heading', { name: 'My tasks' })
     expect(api.calls.find((c) => c.path === '/auth/change-password')?.body).toEqual({
       currentPassword: 'the-temp-password',
       newPassword: 'a-real-password',
@@ -470,7 +477,7 @@ describe('proactive refresh and the idle warning (ADR 0012)', () => {
     renderApp('/login')
     await screen.findByRole('heading', { name: 'Log in' })
     logIn()
-    await screen.findByText('PRJ-000001')
+    await screen.findByRole('heading', { name: 'My tasks' })
 
     fireEvent.click(document.body) // activity, after login
 
@@ -488,7 +495,7 @@ describe('proactive refresh and the idle warning (ADR 0012)', () => {
     renderApp('/login')
     await screen.findByRole('heading', { name: 'Log in' })
     logIn()
-    await screen.findByText('PRJ-000001')
+    await screen.findByRole('heading', { name: 'My tasks' })
 
     // The mount-time silent restore (before login) already called /auth/refresh
     // once; what matters here is that it isn't called again.
@@ -531,7 +538,7 @@ describe('proactive refresh and the idle warning (ADR 0012)', () => {
     renderApp('/login')
     await screen.findByRole('heading', { name: 'Log in' })
     logIn()
-    await screen.findByText('PRJ-000001')
+    await screen.findByRole('heading', { name: 'My tasks' })
 
     // Just past idleTimeoutSeconds (1800s) minus the 60s warning lead - and
     // comfortably past the proactive-refresh point too, so this is purely

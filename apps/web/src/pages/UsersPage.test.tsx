@@ -42,12 +42,15 @@ describe('GET /users', () => {
     await screen.findByText('No users yet.')
   })
 
-  it('is not reachable by a non-admin - the route renders as not found, and never calls the API', async () => {
+  it('is not reachable by a non-admin - the route renders as not found, and never calls /users', async () => {
     const api = stubApi([route('GET', '/users', { body: [ADMIN_USER, FINANCE_USER] })])
     renderApp('/users', { session: financeSession })
 
     await screen.findByText('Page not found.')
-    expect(api.calls).toEqual([])
+    // The header's background task/notification-count polling (ADR 0014)
+    // still fires on any authenticated page - what this test actually
+    // guards is that the Users page component itself never mounts/fetches.
+    expect(api.paths('GET')).not.toContain('/users')
   })
 })
 
