@@ -3,6 +3,7 @@ import * as techPackRepository from "../repositories/techPackRepository";
 import * as techPackVersionRepository from "../repositories/techPackVersionRepository";
 import * as projectRepository from "../repositories/projectRepository";
 import { prisma } from "../repositories/prismaClient";
+import * as notificationService from "./notificationService";
 import { attachmentStorage, isAllowedAttachmentExtension, MAX_ATTACHMENT_SIZE_BYTES } from "./storage";
 import type { Actor } from "./tokenService";
 import * as visibility from "./visibility";
@@ -162,6 +163,15 @@ export async function createTechPack(actor: Actor, input: CreateTechPackInput) {
 
       await createAttachmentRows(saved, createdById, version.id, tx);
 
+      await notificationService.notifyVersionUploaded(
+        tx,
+        actor,
+        techPack.id,
+        techPack.code,
+        project.id,
+        version.versionNumber,
+      );
+
       return techPack.id;
     });
   } catch (err) {
@@ -213,6 +223,15 @@ export async function uploadTechPackVersion(
       );
 
       await createAttachmentRows(saved, uploadedById, version.id, tx);
+
+      await notificationService.notifyVersionUploaded(
+        tx,
+        actor,
+        techPackId,
+        techPack.code,
+        techPack.projectId,
+        version.versionNumber,
+      );
     });
   } catch (err) {
     await deleteSavedFiles(saved);

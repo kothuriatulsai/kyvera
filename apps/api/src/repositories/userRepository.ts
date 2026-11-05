@@ -81,3 +81,10 @@ export function updatePassword(
 export function countActiveAdmins(db: Db = prisma) {
   return db.user.count({ where: { role: "ADMIN", isActive: true } });
 }
+
+// ADR 0014: recipient resolution for a notification whose role sees every
+// Project regardless of membership (MANAGEMENT, PMO) - "everyone who can
+// see this" is just every active user of that role, not a membership query.
+export function findActiveIdsByRole(role: UserRole, db: Db = prisma) {
+  return db.user.findMany({ where: { role, isActive: true }, select: { id: true } });
+}

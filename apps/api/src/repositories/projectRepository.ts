@@ -28,6 +28,23 @@ export function create(data: Prisma.ProjectCreateInput, db: Db = prisma) {
   return db.project.create({ data, include });
 }
 
+// ADR 0014: a narrow select for composing a member-added/removed
+// notification's message - just enough to name the Project, not the full
+// detail include.
+export function findCodeAndName(id: string, db: Db = prisma) {
+  return db.project.findUnique({ where: { id }, select: { code: true, name: true } });
+}
+
+// ADR 0014: PMO's "Waiting for design" task - every Project (PMO is
+// see-all) that has never had a TechPack created on it at all.
+export function findManyWithoutTechPacks(db: Db = prisma) {
+  return db.project.findMany({
+    where: { techPacks: { none: {} } },
+    select: { id: true, code: true, name: true },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 // Locks the row for the life of the enclosing transaction - used by
 // techPackService.createTechPack so the "at most one non-voided TechPack per
 // Project per phase" check and the insert that follows it can't race a

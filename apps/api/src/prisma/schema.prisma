@@ -65,6 +65,7 @@ model User {
   projectMembersAdded      ProjectMember[]        @relation("ProjectMemberAdder")
   projectMemberHistoryFor  ProjectMemberHistory[] @relation("ProjectMemberHistoryUser")
   projectMemberHistoryBy   ProjectMemberHistory[] @relation("ProjectMemberHistoryActor")
+  notifications            Notification[]
 
   @@map("users")
 }
@@ -341,4 +342,38 @@ model ProtoRequest {
 
   @@index([projectId, techPackVersionId])
   @@map("proto_requests")
+}
+
+// ADR 0014: a stored, append-only event log, written in the same
+// transaction as the action that caused it. Not polymorphic - `message`
+// and `link` are a fixed-at-creation snapshot (same "redundant human-
+// readable snapshot" precedent as TechPack.voidReason), so a reader never
+// needs to join back through whatever it refers to just to render it.
+// onDelete: Restrict, not Cascade like UserSession - this is audit-relevant
+// event history, not ephemeral auth state (ADR 0006 point 9's default).
+model Notification {
+  id          String           @id @default(uuid()) @db.Uuid
+  recipientId String           @map("recipient_id") @db.Uuid
+  recipient   User             @relation(fields: [recipientId], references: [id], onDelete: Restrict)
+  type        NotificationType
+  message     String
+  link        String
+  createdAt   DateTime         @default(now()) @map("created_at")
+  readAt      DateTime?        @map("read_at")
+
+  @@index([recipientId, createdAt])
+  @@index([recipientId, readAt])
+  @@map("notifications")
+}
+
+enum NotificationType {
+  TECH_PACK_VERSION_UPLOADED
+  TECH_PACK_REMARK_ADDED
+  TECH_PACK_VERSION_CONFIRMED
+  TECH_PACK_VERSION_APPROVED
+  TECH_PACK_VERSION_REJECTED
+  PROJECT_MEMBER_ADDED
+  PROJECT_MEMBER_REMOVED
+
+  @@map("notification_type")
 }

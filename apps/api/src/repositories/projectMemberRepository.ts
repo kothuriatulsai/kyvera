@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, UserRole } from "@prisma/client";
 import type { Db } from "./prismaClient";
 import { prisma } from "./prismaClient";
 import { safeUserSelect } from "./selects";
@@ -33,6 +33,16 @@ export function findProjectsForUser(userId: string, db: Db = prisma) {
     where: { userId },
     include: { project: { select: { id: true, code: true, name: true } } },
     orderBy: { addedAt: "asc" },
+  });
+}
+
+// ADR 0014: recipient resolution for a Project-scoped notification - every
+// member of this Project whose role matches, regardless of how they became
+// visible to it (membership is the only route for a non-see-all role).
+export function findUserIdsByProjectAndRole(projectId: string, role: UserRole, db: Db = prisma) {
+  return db.projectMember.findMany({
+    where: { projectId, user: { role } },
+    select: { userId: true },
   });
 }
 

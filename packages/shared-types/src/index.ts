@@ -387,3 +387,61 @@ export function isAllowedAttachmentExtension(originalName: string): boolean {
   const ext = originalName.split(".").pop()?.toLowerCase();
   return ext !== undefined && (ALLOWED_ATTACHMENT_EXTENSIONS as readonly string[]).includes(ext);
 }
+
+// ---------------------------------------------------------------------------
+// "My tasks" + notifications (ADR 0014). Tasks are computed on every request,
+// never stored - every query behind them is scoped through services/
+// visibility.ts, so a task can never point at something its viewer isn't
+// allowed to open. Notifications are a stored, append-only event log,
+// written in the same transaction as the action that caused them.
+// ---------------------------------------------------------------------------
+
+export const TASK_TYPES = [
+  "UPLOAD_FIRST_VERSION",
+  "ADDRESS_REMARKS",
+  "REVIEW_VERSION",
+  "DECIDE_VERSION",
+  "WAITING_FOR_DESIGN",
+] as const;
+export type TaskType = (typeof TASK_TYPES)[number];
+
+/** Shape of each entry in `GET /me/tasks`. `link` is always a path into the
+ * web app the viewer can open - a Tech Pack or Project detail page. */
+export interface Task {
+  type: TaskType;
+  message: string;
+  link: string;
+  projectId: string;
+  projectCode: string;
+  techPackId?: string;
+  techPackCode?: string;
+  versionNumber?: number;
+}
+
+export const NOTIFICATION_TYPES = [
+  "TECH_PACK_VERSION_UPLOADED",
+  "TECH_PACK_REMARK_ADDED",
+  "TECH_PACK_VERSION_CONFIRMED",
+  "TECH_PACK_VERSION_APPROVED",
+  "TECH_PACK_VERSION_REJECTED",
+  "PROJECT_MEMBER_ADDED",
+  "PROJECT_MEMBER_REMOVED",
+] as const;
+export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
+
+/** Shape of each entry in `GET /me/notifications`. `readAt` is null until
+ * `POST /me/notifications/:id/read` (or `.../read-all`) is called. */
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  message: string;
+  link: string;
+  createdAt: string;
+  readAt: string | null;
+}
+
+/** Response of `GET /me/notifications`. `nextCursor` is null on the last page. */
+export interface NotificationPage {
+  items: Notification[];
+  nextCursor: string | null;
+}

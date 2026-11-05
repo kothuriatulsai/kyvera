@@ -102,13 +102,17 @@ async function setUpConfirmedVersion1() {
   const techPackCode = created.body.code as string;
   const confirmed = await confirmVersion(engineering, techPackId, 1);
   expect(confirmed.status).toBe(201);
-  return { designer, engineering, project, techPackId, techPackCode };
+  return { designer, designerId, engineering, engineeringId, project, techPackId, techPackCode };
+}
+
+function notificationsFor(recipientId: string) {
+  return prisma.notification.findMany({ where: { recipientId } });
 }
 
 describe("POST /tech-packs/:id/versions/:versionNumber/decision", () => {
   it("approves a confirmed latest version, creating a pinned ProtoRequest", async () => {
-    const { techPackId, techPackCode, project } = await setUpConfirmedVersion1();
-    const { agent: management } = await createTestUser(app, "MANAGEMENT");
+    const { designerId, techPackId, techPackCode, project } = await setUpConfirmedVersion1();
+    const { agent: management, id: managementId } = await createTestUser(app, "MANAGEMENT");
 
     const res = await decide(management, techPackId, 1, { decision: "APPROVED", notes: "looks good" });
 
@@ -122,11 +126,19 @@ describe("POST /tech-packs/:id/versions/:versionNumber/decision", () => {
     expect(pr.project.id).toBe(project.id);
     expect(pr.techPackVersion.versionNumber).toBe(1);
     expect(pr.techPackVersion.techPack.code).toBe(techPackCode);
+
+    // ADR 0014: approving notifies the Product Designer, not the deciding
+    // Management actor themselves. (The designer also got a
+    // TECH_PACK_VERSION_CONFIRMED notification from setUpConfirmedVersion1's
+    // own confirm step - filtering by type isolates the one this test cares about.)
+    const designerNotifications = await notificationsFor(designerId);
+    expect(designerNotifications.filter((n) => n.type === "TECH_PACK_VERSION_APPROVED")).toHaveLength(1);
+    expect(await notificationsFor(managementId)).toHaveLength(0);
   });
 
   it("rejects a confirmed latest version, voiding it and creating a successor", async () => {
-    const { designer, techPackId, project } = await setUpConfirmedVersion1();
-    const { agent: management } = await createTestUser(app, "MANAGEMENT");
+    const { designer, designerId, techPackId, project } = await setUpConfirmedVersion1();
+    const { agent: management, id: managementId } = await createTestUser(app, "MANAGEMENT");
 
     const res = await decide(management, techPackId, 1, {
       decision: "REJECTED",
@@ -136,6 +148,13 @@ describe("POST /tech-packs/:id/versions/:versionNumber/decision", () => {
     expect(res.status).toBe(201);
     expect(res.body.decision).toBe("REJECTED");
     expect(res.body.protoRequest).toBeNull();
+
+    // ADR 0014: rejecting notifies the Product Designer too - their task now
+    // is "upload v1 to the successor". (Also got a TECH_PACK_VERSION_CONFIRMED
+    // notification earlier from setUpConfirmedVersion1's confirm step.)
+    const designerNotifications = await notificationsFor(designerId);
+    expect(designerNotifications.filter((n) => n.type === "TECH_PACK_VERSION_REJECTED")).toHaveLength(1);
+    expect(await notificationsFor(managementId)).toHaveLength(0);
 
     const successor = res.body.techPack;
     expect(successor.id).not.toBe(techPackId);

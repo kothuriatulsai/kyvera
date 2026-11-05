@@ -84,3 +84,55 @@ export async function lockById(id: string, tx: Prisma.TransactionClient) {
   await tx.$queryRaw`SELECT id FROM tech_packs WHERE id = ${id} FOR UPDATE`;
   return tx.techPack.findUnique({ where: { id } });
 }
+
+// ADR 0014, PRODUCT_DESIGNER/ENGINEERING tasks: just the latest version of
+// each matching TechPack (empty array if it has none yet), plus that
+// version's *latest* remark and its author's role - not every remark, and
+// not just whether any exist. Whose turn it is depends on who spoke last.
+const latestVersionForTaskSelect = {
+  id: true,
+  versionNumber: true,
+  confirmation: { select: { id: true } },
+  remarks: {
+    select: { author: { select: { role: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+  },
+} satisfies Prisma.TechPackVersionSelect;
+
+export function findManyWithLatestVersion(where: Prisma.TechPackWhereInput, db: Db = prisma) {
+  return db.techPack.findMany({
+    where,
+    select: {
+      id: true,
+      code: true,
+      projectId: true,
+      project: { select: { code: true } },
+      versions: { orderBy: { versionNumber: "desc" }, take: 1, select: latestVersionForTaskSelect },
+    },
+  });
+}
+
+// ADR 0014, MANAGEMENT's "Decide" task: every version (not just the
+// latest), narrow confirmation/approval only - enough to find the latest
+// *confirmed* version and detect a newer, still-unconfirmed one on top of
+// it (mirrors visibility.visibleTechPackDetail's hasPendingNewerVersion).
+const versionForDecisionTaskSelect = {
+  id: true,
+  versionNumber: true,
+  confirmation: { select: { id: true } },
+  approval: { select: { id: true } },
+} satisfies Prisma.TechPackVersionSelect;
+
+export function findManyForDecisionTasks(where: Prisma.TechPackWhereInput, db: Db = prisma) {
+  return db.techPack.findMany({
+    where,
+    select: {
+      id: true,
+      code: true,
+      projectId: true,
+      project: { select: { code: true } },
+      versions: { orderBy: { versionNumber: "desc" }, select: versionForDecisionTaskSelect },
+    },
+  });
+}

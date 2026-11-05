@@ -3,6 +3,7 @@ import * as projectMemberRepository from "../repositories/projectMemberRepositor
 import * as projectRepository from "../repositories/projectRepository";
 import * as userRepository from "../repositories/userRepository";
 import { prisma } from "../repositories/prismaClient";
+import * as notificationService from "./notificationService";
 import type { Actor } from "./tokenService";
 import * as visibility from "./visibility";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
@@ -71,6 +72,12 @@ async function addMemberRow(projectId: string, userId: string, addedById: string
       },
       tx,
     );
+
+    const project = await projectRepository.findCodeAndName(projectId, tx);
+    if (project) {
+      await notificationService.notifyMemberAdded(tx, addedById, projectId, project.code, userId);
+    }
+
     return member;
   });
 }
@@ -114,6 +121,8 @@ export async function removeMember(actor: Actor, projectId: string, targetUserId
     throw new NotFoundError(`${targetUserId} is not a member of this Project`);
   }
 
+  const project = await projectRepository.findCodeAndName(projectId);
+
   return prisma.$transaction(async (tx) => {
     await projectMemberRepository.remove(projectId, targetUserId, tx);
     await projectMemberRepository.createHistoryEntry(
@@ -125,6 +134,10 @@ export async function removeMember(actor: Actor, projectId: string, targetUserId
       },
       tx,
     );
+
+    if (project) {
+      await notificationService.notifyMemberRemoved(tx, actor.id, project.code, targetUserId);
+    }
   });
 }
 

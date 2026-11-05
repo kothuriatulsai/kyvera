@@ -52,6 +52,18 @@ async function createUserViaApi(admin: TestUser) {
 }
 
 afterAll(async () => {
+  // A couple of these users get role-changed to MANAGEMENT/PMO mid-test
+  // (see "change role" below) - if a concurrently-running test file
+  // confirms/approves/decides anything while that's true, ADR 0014's
+  // "notify every active user of that role" sends them a Notification too,
+  // which blocks this delete (onDelete: Restrict) unless it's cleared first.
+  const createdUsers = await prisma.user.findMany({
+    where: { email: { in: createdEmails.map((e) => e.toLowerCase()) } },
+    select: { id: true },
+  });
+  await prisma.notification.deleteMany({
+    where: { recipientId: { in: createdUsers.map((u) => u.id) } },
+  });
   await prisma.user.deleteMany({ where: { email: { in: createdEmails.map((e) => e.toLowerCase()) } } });
   await cleanupTestUsers();
   await prisma.$disconnect();
