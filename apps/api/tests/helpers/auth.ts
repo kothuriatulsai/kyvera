@@ -61,8 +61,16 @@ export async function createTestUser(
  * approval, attachment) - otherwise this delete fails with a foreign key
  * violation instead of silently succeeding. `UserSession` rows are
  * `onDelete: Cascade` (ADR 0012) and need no separate cleanup here.
+ *
+ * `Notification` rows (ADR 0014) *are* cleaned up here, not left to each test
+ * file: unlike a Project/TechPack/etc., a test never creates these directly -
+ * they're a side effect of some other action, addressed to a recipient the
+ * test may not have a handle on at all (e.g. every ENGINEERING member of a
+ * Project, not just the one actor under test) - so there's no single "delete
+ * what I made" call site for them to live at.
  */
 export async function cleanupTestUsers() {
+  await prisma.notification.deleteMany({ where: { recipientId: { in: createdUserIds } } });
   await prisma.user.deleteMany({ where: { id: { in: createdUserIds } } });
   createdUserIds.length = 0;
 }

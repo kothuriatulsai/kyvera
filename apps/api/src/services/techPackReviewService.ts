@@ -4,6 +4,7 @@ import * as techPackVersionRepository from "../repositories/techPackVersionRepos
 import * as techPackRemarkRepository from "../repositories/techPackRemarkRepository";
 import * as techPackConfirmationRepository from "../repositories/techPackConfirmationRepository";
 import { prisma } from "../repositories/prismaClient";
+import * as notificationService from "./notificationService";
 import type { Actor } from "./tokenService";
 import * as visibility from "./visibility";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
@@ -51,10 +52,26 @@ export async function addTechPackRemark(
     throw new ConflictError(`Tech Pack ${version.techPack.code} is voided and cannot take new remarks`);
   }
 
-  return techPackRemarkRepository.create({
-    techPackVersion: { connect: { id: version.id } },
-    author: { connect: { id: actor.id } },
-    body,
+  return prisma.$transaction(async (tx) => {
+    const remark = await techPackRemarkRepository.create(
+      {
+        techPackVersion: { connect: { id: version.id } },
+        author: { connect: { id: actor.id } },
+        body,
+      },
+      tx,
+    );
+
+    await notificationService.notifyRemarkAdded(
+      tx,
+      actor,
+      techPackId,
+      version.techPack.code,
+      version.techPack.projectId,
+      versionNumber,
+    );
+
+    return remark;
   });
 }
 
@@ -109,13 +126,24 @@ export async function confirmTechPackVersion(actor: Actor, techPackId: string, v
         );
       }
 
-      return techPackConfirmationRepository.create(
+      const confirmation = await techPackConfirmationRepository.create(
         {
           techPackVersion: { connect: { id: version.id } },
           confirmedBy: { connect: { id: confirmedById } },
         },
         tx,
       );
+
+      await notificationService.notifyVersionConfirmed(
+        tx,
+        actor,
+        techPackId,
+        techPack.code,
+        techPack.projectId,
+        versionNumber,
+      );
+
+      return confirmation;
     });
   } catch (err) {
     // Defence in depth behind the explicit `existing` check above: the unique

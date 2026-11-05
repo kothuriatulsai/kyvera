@@ -6,6 +6,7 @@ import * as techPackConfirmationRepository from "../repositories/techPackConfirm
 import * as techPackApprovalRepository from "../repositories/techPackApprovalRepository";
 import * as protoRequestRepository from "../repositories/protoRequestRepository";
 import { prisma } from "../repositories/prismaClient";
+import * as notificationService from "./notificationService";
 import type { Actor } from "./tokenService";
 import * as visibility from "./visibility";
 import { ConflictError, NotFoundError, ValidationError } from "./errors";
@@ -91,6 +92,14 @@ export async function decideTechPackVersion(
           },
           tx,
         );
+        await notificationService.notifyVersionApproved(
+          tx,
+          actor,
+          protoRequest.id,
+          techPack.code,
+          techPack.projectId,
+          versionNumber,
+        );
         const approvedTechPack = await techPackRepository.findById(techPackId, tx);
         return { decision: "APPROVED" as const, techPack: approvedTechPack, protoRequest };
       }
@@ -115,6 +124,15 @@ export async function decideTechPackVersion(
         },
         tx,
       );
+
+      await notificationService.notifyVersionRejected(
+        tx,
+        actor,
+        successor.id,
+        techPack.code,
+        techPack.projectId,
+      );
+
       const successorDetail = await techPackRepository.findById(successor.id, tx);
 
       return { decision: "REJECTED" as const, techPack: successorDetail, protoRequest: null };

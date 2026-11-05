@@ -7,6 +7,8 @@ import { IdleWarningBanner } from './components/IdleWarningBanner'
 import { NotFoundPage } from './components/NotFoundPage'
 import { AccountPage } from './pages/AccountPage'
 import { LoginPage } from './pages/LoginPage'
+import { MyTasksPage } from './pages/MyTasksPage'
+import { NotificationsPage } from './pages/NotificationsPage'
 import { ProjectDetailPage } from './pages/ProjectDetailPage'
 import { ProjectListPage } from './pages/ProjectListPage'
 import { ProtoRequestDetailPage } from './pages/ProtoRequestDetailPage'
@@ -39,7 +41,8 @@ function App() {
           {/* Everything else needs a logged-in user, unknown paths included, so a
               logged-out visitor is never told which paths exist. */}
           <Route element={<RequireAuth />}>
-            <Route path="/" element={<ProjectListPage />} />
+            <Route path="/" element={<MyTasksPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/account" element={<AccountPage />} />
             <Route path="/projects" element={<ProjectListPage />} />
             <Route path="/projects/:id" element={<ProjectDetailPage />} />

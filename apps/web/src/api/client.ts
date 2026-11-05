@@ -172,3 +172,24 @@ export const apiGetBlob = async (path: string): Promise<Blob> => {
   const res = await rawFetch(path, { method: 'GET', headers: {}, authenticated: true })
   return res.blob()
 }
+
+/**
+ * ADR 0014: background badge-count polling (nav task count, notification
+ * bell). Deliberately bypasses `rawFetch` entirely - no refresh-retry, no
+ * `onSessionEnded`/`onForbidden`, and it never touches `AuthProvider`'s
+ * activity tracking. A 401 (token expired, nobody around to trigger a real
+ * refresh) just resolves to `null`; the poller treats "nothing this tick"
+ * as a no-op rather than ending the session or forcing a refresh - the next
+ * real user action still goes through the normal reactive-refresh path.
+ */
+export async function apiGetSilent<T>(path: string): Promise<T | null> {
+  try {
+    const headers: Record<string, string> = {}
+    if (accessToken) headers.Authorization = `Bearer ${accessToken}`
+    const res = await fetch(`${API_URL}${path}`, { method: 'GET', headers })
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch {
+    return null
+  }
+}

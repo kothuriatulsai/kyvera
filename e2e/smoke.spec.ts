@@ -16,7 +16,10 @@ test('pmo@ can log in and reach the Projects page', async ({ page }) => {
   await page.getByLabel('Password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Log in' }).click()
 
-  // Lands on Projects (the default route) once logged in.
+  // Lands on My tasks (the default route, ADR 0014) once logged in.
+  await expect(page.getByRole('heading', { name: 'My tasks', exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: /^Projects$/ }).click()
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
 
   // ADR 0012: the access token is memory-only, but the httpOnly refresh
@@ -35,6 +38,9 @@ test('a Project is invisible to a Product Designer who is not a member (ADR 0013
   await page.getByLabel('Email').fill(EMAIL)
   await page.getByLabel('Password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByRole('heading', { name: 'My tasks', exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: /^Projects$/ }).click()
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
 
   const projectName = `Visibility Smoke ${Date.now()}`
@@ -51,6 +57,9 @@ test('a Project is invisible to a Product Designer who is not a member (ADR 0013
   await page.getByLabel('Email').fill(DESIGNER2_EMAIL)
   await page.getByLabel('Password').fill(DESIGNER2_PASSWORD)
   await page.getByRole('button', { name: 'Log in' }).click()
+  await expect(page.getByRole('heading', { name: 'My tasks', exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: /^Projects$/ }).click()
   await expect(page.getByRole('heading', { name: 'Projects', exact: true })).toBeVisible()
 
   await expect(page.getByText(projectName)).not.toBeVisible()

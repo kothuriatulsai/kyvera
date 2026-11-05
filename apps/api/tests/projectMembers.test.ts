@@ -21,7 +21,7 @@ type Agent = Awaited<ReturnType<typeof createTestUser>>["agent"];
 async function createProject(agent: Agent) {
   const res = await agent.post("/projects").send({ name: "Membership Host Project", productName: "Widget" });
   createdProjectIds.push(res.body.id);
-  return res.body as { id: string };
+  return res.body as { id: string; code: string };
 }
 
 describe("GET /projects/:id/members", () => {
@@ -99,6 +99,12 @@ describe("POST /projects/:id/members", () => {
     });
     expect(history).toHaveLength(1);
     expect(history[0].action).toBe("ADDED");
+
+    // ADR 0014: the added user is notified, naming the Project they can now open.
+    const notifications = await prisma.notification.findMany({ where: { recipientId: designerId } });
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].type).toBe("PROJECT_MEMBER_ADDED");
+    expect(notifications[0].link).toBe(`/projects/${project.id}`);
   });
 
   it("allows ADMIN too", async () => {
@@ -196,6 +202,15 @@ describe("POST /projects/:id/members/:userId/remove", () => {
       orderBy: { at: "asc" },
     });
     expect(history.map((h) => h.action)).toEqual(["ADDED", "REMOVED"]);
+
+    // ADR 0014: the removed user is notified, but with no link into the
+    // Project - ADR 0013 would 404 it the instant they tried.
+    const notifications = await prisma.notification.findMany({
+      where: { recipientId: designerId, type: "PROJECT_MEMBER_REMOVED" },
+    });
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].link).toBe("/");
+    expect(notifications[0].message).toContain(project.code);
   });
 
   it("404s removing someone who isn't a member", async () => {

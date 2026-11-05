@@ -82,15 +82,20 @@ async function setUpVersion1(designerRole: UserRole = "PRODUCT_DESIGNER") {
   const created = await createTechPack(designer, project.id);
   return {
     designer,
+    designerId,
     projectId: project.id,
     techPackId: created.body.id as string,
     techPackCode: created.body.code as string,
   };
 }
 
+function notificationsFor(recipientId: string) {
+  return prisma.notification.findMany({ where: { recipientId } });
+}
+
 describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
   it("adds a remark, trimmed, with the author's safe shape", async () => {
-    const { projectId, techPackId } = await setUpVersion1();
+    const { projectId, techPackId, designerId } = await setUpVersion1();
     const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
     await addMember(projectId, engineeringId);
 
@@ -100,6 +105,14 @@ describe("POST /tech-packs/:id/versions/:versionNumber/remarks", () => {
     expect(res.body.body).toBe("please revise the BOM");
     expect(res.body.author.passwordHash).toBeUndefined();
     expect(res.body.author.role).toBe("ENGINEERING");
+
+    // ADR 0014: a remark notifies the Product Designer side of the thread,
+    // not the author themselves.
+    const designerNotifications = await notificationsFor(designerId);
+    expect(designerNotifications).toHaveLength(1);
+    expect(designerNotifications[0].type).toBe("TECH_PACK_REMARK_ADDED");
+    const engineeringNotifications = await notificationsFor(engineeringId);
+    expect(engineeringNotifications).toHaveLength(0);
   });
 
   it("allows PRODUCT_DESIGNER and ADMIN too", async () => {
@@ -239,7 +252,7 @@ describe("GET /tech-packs/:id/versions/:versionNumber/remarks", () => {
 
 describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
   it("confirms the latest version, with the confirmer's safe shape", async () => {
-    const { projectId, techPackId } = await setUpVersion1();
+    const { projectId, techPackId, designerId } = await setUpVersion1();
     const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
     await addMember(projectId, engineeringId);
 
@@ -249,6 +262,13 @@ describe("POST /tech-packs/:id/versions/:versionNumber/confirm", () => {
     expect(res.body.confirmedBy.passwordHash).toBeUndefined();
     expect(res.body.confirmedBy.role).toBe("ENGINEERING");
     expect(res.body.confirmedAt).toEqual(expect.any(String));
+
+    // ADR 0014: confirming notifies the Product Designer, not the
+    // confirming engineer themselves.
+    const designerNotifications = await notificationsFor(designerId);
+    expect(designerNotifications).toHaveLength(1);
+    expect(designerNotifications[0].type).toBe("TECH_PACK_VERSION_CONFIRMED");
+    expect(await notificationsFor(engineeringId)).toHaveLength(0);
   });
 
   it.each([
