@@ -30,6 +30,20 @@ function protoRequest(overrides: Partial<ProtoRequest['techPackVersion']> = {}):
       },
       ...overrides,
     },
+    // Stage 4 (ADR 0015) - not yet reached in these fixtures, all unset.
+    manufacturerId: null,
+    manufacturer: null,
+    manufacturerAssignedAt: null,
+    manufacturerAssignedById: null,
+    manufacturerAssignedBy: null,
+    commercialNotes: null,
+    poAttachment: null,
+    agreedDeliveryDate: null,
+    confirmationNote: null,
+    confirmedAt: null,
+    confirmedById: null,
+    confirmedBy: null,
+    protoWork: null,
     createdAt: '2026-09-10T00:00:00.000Z',
   }
 }
