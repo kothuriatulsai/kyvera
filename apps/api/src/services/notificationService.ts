@@ -26,7 +26,12 @@ async function notify(
     | "TECH_PACK_VERSION_APPROVED"
     | "TECH_PACK_VERSION_REJECTED"
     | "PROJECT_MEMBER_ADDED"
-    | "PROJECT_MEMBER_REMOVED",
+    | "PROJECT_MEMBER_REMOVED"
+    | "MANUFACTURER_ASSIGNED"
+    | "PROTO_REQUEST_PO_UPLOADED"
+    | "PROTO_WORK_QUEUED"
+    | "PROTO_WORK_ASSIGNED"
+    | "PROTO_WORK_COMPLETED",
   message: string,
   link: string,
 ) {
@@ -41,7 +46,7 @@ async function notify(
 async function projectMemberIdsByRole(
   tx: Prisma.TransactionClient,
   projectId: string,
-  role: "PRODUCT_DESIGNER" | "ENGINEERING",
+  role: "PRODUCT_DESIGNER" | "ENGINEERING" | "FINANCE",
 ): Promise<string[]> {
   const rows = await projectMemberRepository.findUserIdsByProjectAndRole(projectId, role, tx);
   return rows.map((row) => row.userId);
@@ -201,6 +206,109 @@ export async function notifyMemberRemoved(
     "PROJECT_MEMBER_REMOVED",
     `You were removed from project ${projectCode}.`,
     "/",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Slice B (ADR 0015) - Proto Request Stage 4 / Proto Work Stage 5. Deliberately
+// no event for a routine delivery-date reconfirmation (step 22) - it resets
+// only the reconfirming merchandiser's own task clock and creates no one
+// else's task, the same reasoning ADR 0014 already used to reject notifying
+// Management on every version upload.
+// ---------------------------------------------------------------------------
+
+// Step 15: Finance's "upload PO" task just appeared.
+export async function notifyManufacturerAssigned(
+  tx: Prisma.TransactionClient,
+  actor: Actor,
+  protoRequestId: string,
+  protoRequestCode: string,
+  projectId: string,
+) {
+  const finance = await projectMemberIdsByRole(tx, projectId, "FINANCE");
+  await notify(
+    tx,
+    finance,
+    actor.id,
+    "MANUFACTURER_ASSIGNED",
+    `${protoRequestCode}: manufacturer assigned - PO needed.`,
+    `/proto-requests/${protoRequestId}`,
+  );
+}
+
+// Step 17: PMO's "confirm" task just appeared.
+export async function notifyPoUploaded(
+  tx: Prisma.TransactionClient,
+  actor: Actor,
+  protoRequestId: string,
+  protoRequestCode: string,
+) {
+  const pmo = await activeIdsByRole(tx, "PMO");
+  await notify(
+    tx,
+    pmo,
+    actor.id,
+    "PROTO_REQUEST_PO_UPLOADED",
+    `${protoRequestCode}: PO uploaded - ready to confirm.`,
+    `/proto-requests/${protoRequestId}`,
+  );
+}
+
+// Step 19: confirming the Proto Request released a ProtoWork to the Work
+// Queue - PMO's "assign a merchandiser" task just appeared.
+export async function notifyProtoWorkQueued(
+  tx: Prisma.TransactionClient,
+  actor: Actor,
+  protoWorkId: string,
+  protoWorkCode: string,
+) {
+  const pmo = await activeIdsByRole(tx, "PMO");
+  await notify(
+    tx,
+    pmo,
+    actor.id,
+    "PROTO_WORK_QUEUED",
+    `${protoWorkCode} released to the work queue.`,
+    `/proto-work/${protoWorkId}`,
+  );
+}
+
+// Step 20: a single, specific recipient - not a role lookup.
+export async function notifyProtoWorkAssigned(
+  tx: Prisma.TransactionClient,
+  actor: Actor,
+  protoWorkId: string,
+  protoWorkCode: string,
+  merchandiserId: string,
+) {
+  await notify(
+    tx,
+    [merchandiserId],
+    actor.id,
+    "PROTO_WORK_ASSIGNED",
+    `You were assigned ${protoWorkCode}.`,
+    `/proto-work/${protoWorkId}`,
+  );
+}
+
+// Step 23/24: Stage 5 finished - PMO's next action is Quality Order (Slice
+// C, not modeled yet), but the "whose task just changed" heads-up still
+// applies, same as ADR 0014 already notifying on approve/reject even where
+// no new task results from those specifically.
+export async function notifyProtoWorkCompleted(
+  tx: Prisma.TransactionClient,
+  actor: Actor,
+  protoWorkId: string,
+  protoWorkCode: string,
+) {
+  const pmo = await activeIdsByRole(tx, "PMO");
+  await notify(
+    tx,
+    pmo,
+    actor.id,
+    "PROTO_WORK_COMPLETED",
+    `${protoWorkCode} marked complete.`,
+    `/proto-work/${protoWorkId}`,
   );
 }
 

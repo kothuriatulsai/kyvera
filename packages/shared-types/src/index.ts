@@ -300,6 +300,11 @@ export interface TechPackListItem {
  * directly (ADR 0013) - Finance/Merchandiser's only lens into a Tech Pack
  * is through this record, so it has to be self-contained; they can't fetch
  * `GET /tech-packs/:id` to fill in the rest themselves.
+ *
+ * ADR 0015, Stage 4: `manufacturer`/`poAttachment`/`agreedDeliveryDate`/etc.
+ * are populated progressively (assign manufacturer -> upload PO -> confirm)
+ * and locked in once `confirmedAt` is set. `protoWork` is non-null exactly
+ * when `confirmedAt` is.
  */
 export interface ProtoRequest {
   id: string;
@@ -315,7 +320,138 @@ export interface ProtoRequest {
     attachments: Attachment[];
     approval: TechPackApproval | null;
   };
+  manufacturerId: string | null;
+  manufacturer: ManufacturerMaster | null;
+  manufacturerAssignedAt: string | null;
+  manufacturerAssignedById: string | null;
+  manufacturerAssignedBy: UserSummary | null;
+  commercialNotes: string | null;
+  poAttachment: Attachment | null;
+  agreedDeliveryDate: string | null;
+  confirmationNote: string | null;
+  confirmedAt: string | null;
+  confirmedById: string | null;
+  confirmedBy: UserSummary | null;
+  protoWork: { id: string; code: string; status: ProtoWorkStatus } | null;
   createdAt: string;
+}
+
+/** Body of `POST /proto-requests/:id/manufacturer`. PMO or ADMIN; allowed
+ * again (reassignment) until the Proto Request is confirmed, then 409s. */
+export interface AssignManufacturerRequest {
+  manufacturerId: string;
+  commercialNotes?: string;
+}
+
+/** Body of `POST /proto-requests/:id/confirm`. PMO or ADMIN; requires a
+ * manufacturer and PO already set, 400s otherwise. Creates the `ProtoWork`
+ * returned on the response's `protoWork` field. */
+export interface ConfirmProtoRequestRequest {
+  agreedDeliveryDate: string;
+  confirmationNote?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Manufacturer master, Proto Request Stage 4 fields (above), Proto Work
+// Stage 5 (ADR 0015 in the API).
+// ---------------------------------------------------------------------------
+
+/** Master data (ADR 0006 point 7) - not a `users` row, no `code` (the SOP's
+ * own traceability table doesn't name one for Manufacturer). Shape of
+ * `GET /manufacturers` entries and the response of `POST /manufacturers`. */
+export interface ManufacturerMaster {
+  id: string;
+  name: string;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  isActive: boolean;
+  createdById: string;
+  createdAt: string;
+}
+
+/** Body of `POST /manufacturers` and `PATCH /manufacturers/:id` (all fields
+ * optional on the latter). PMO or ADMIN only. */
+export interface CreateManufacturerRequest {
+  name: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+}
+
+export type UpdateManufacturerRequest = Partial<CreateManufacturerRequest>;
+
+export const PROTO_WORK_STATUSES = ["QUEUED", "ASSIGNED", "COMPLETED"] as const;
+export type ProtoWorkStatus = (typeof PROTO_WORK_STATUSES)[number];
+
+/** One entry in a ProtoWork's delivery-date history (step 22's periodic
+ * reconfirmation), always nested under `ProtoWork.deliveryConfirmations` -
+ * newest first, paired with `ProtoWork.currentDeliveryDate` as current state. */
+export interface ProtoWorkDeliveryConfirmation {
+  id: string;
+  protoWorkId: string;
+  deliveryDate: string;
+  confirmedById: string;
+  confirmedBy: UserSummary;
+  notes: string | null;
+  confirmedAt: string;
+}
+
+/** Body of `POST /proto-work/:id/delivery-confirmations`. MERCHANDISER or
+ * ADMIN; 409s once the ProtoWork is completed. */
+export interface AddDeliveryConfirmationRequest {
+  deliveryDate: string;
+  notes?: string;
+}
+
+/** One entry in a ProtoWork's "remarks/chat updates" thread (step 21),
+ * always nested under `ProtoWork.updates` - oldest first, like a chat log. */
+export interface ProtoWorkUpdate {
+  id: string;
+  protoWorkId: string;
+  authorId: string;
+  author: UserSummary;
+  body: string;
+  createdAt: string;
+}
+
+/** Body of `POST /proto-work/:id/updates`. */
+export interface AddProtoWorkUpdateRequest {
+  body: string;
+}
+
+/** Shape of `GET /proto-work`, `GET /proto-work/:id`, and the response of
+ * every Proto Work write action. Stage 5's output - one row per confirmed
+ * `ProtoRequest`. */
+export interface ProtoWork {
+  id: string;
+  code: string;
+  projectId: string;
+  project: { id: string; code: string; name: string };
+  protoRequestId: string;
+  protoRequest: { id: string; code: string };
+  status: ProtoWorkStatus;
+  assignedMerchandiserId: string | null;
+  assignedMerchandiser: UserSummary | null;
+  assignedAt: string | null;
+  assignedById: string | null;
+  assignedBy: UserSummary | null;
+  /** The current, live value - see `deliveryConfirmations` for its history. */
+  currentDeliveryDate: string;
+  completedAt: string | null;
+  completedById: string | null;
+  completedBy: UserSummary | null;
+  createdAt: string;
+  /** Newest first. */
+  deliveryConfirmations: ProtoWorkDeliveryConfirmation[];
+  /** Oldest first. */
+  updates: ProtoWorkUpdate[];
+}
+
+/** Body of `POST /proto-work/:id/assign`. PMO or ADMIN; `merchandiserId`
+ * must already be an active MERCHANDISER member of the Project. */
+export interface AssignProtoWorkRequest {
+  merchandiserId: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -402,11 +538,18 @@ export const TASK_TYPES = [
   "REVIEW_VERSION",
   "DECIDE_VERSION",
   "WAITING_FOR_DESIGN",
+  // ADR 0015 (Slice B).
+  "ASSIGN_MANUFACTURER",
+  "UPLOAD_PO",
+  "CONFIRM_PROTO_REQUEST",
+  "ASSIGN_MERCHANDISER",
+  "RECONFIRM_DELIVERY_DATE",
 ] as const;
 export type TaskType = (typeof TASK_TYPES)[number];
 
 /** Shape of each entry in `GET /me/tasks`. `link` is always a path into the
- * web app the viewer can open - a Tech Pack or Project detail page. */
+ * web app the viewer can open - a Tech Pack, Project, Proto Request, or
+ * Proto Work detail page. */
 export interface Task {
   type: TaskType;
   message: string;
@@ -416,6 +559,11 @@ export interface Task {
   techPackId?: string;
   techPackCode?: string;
   versionNumber?: number;
+  /** ADR 0015. */
+  protoRequestId?: string;
+  protoRequestCode?: string;
+  protoWorkId?: string;
+  protoWorkCode?: string;
 }
 
 export const NOTIFICATION_TYPES = [
@@ -426,6 +574,12 @@ export const NOTIFICATION_TYPES = [
   "TECH_PACK_VERSION_REJECTED",
   "PROJECT_MEMBER_ADDED",
   "PROJECT_MEMBER_REMOVED",
+  // ADR 0015 (Slice B).
+  "MANUFACTURER_ASSIGNED",
+  "PROTO_REQUEST_PO_UPLOADED",
+  "PROTO_WORK_QUEUED",
+  "PROTO_WORK_ASSIGNED",
+  "PROTO_WORK_COMPLETED",
 ] as const;
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
