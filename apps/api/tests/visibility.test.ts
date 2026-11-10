@@ -2,8 +2,8 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { UserRole } from "@prisma/client";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
-import { attachmentStorage } from "../src/services/storage";
-import { cleanupTestUsers, createTestUser } from "./helpers/auth";
+import { createTestUser } from "./helpers/auth";
+import { cleanupSopFixtures } from "./helpers/cleanup";
 import { addMember } from "./helpers/membership";
 
 const app = createApp();
@@ -24,30 +24,14 @@ const MEMBER_GATED: UserRole[] = ["PRODUCT_DESIGNER", "ENGINEERING", "FINANCE", 
 
 const createdProjectIds: string[] = [];
 const createdTechPackIds: string[] = [];
+const createdManufacturerIds: string[] = [];
 
 afterAll(async () => {
-  const attachments = await prisma.attachment.findMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-    select: { id: true, storageKey: true },
+  await cleanupSopFixtures({
+    projectIds: createdProjectIds,
+    techPackIds: createdTechPackIds,
+    manufacturerIds: createdManufacturerIds,
   });
-  await prisma.attachment.deleteMany({ where: { id: { in: attachments.map((a) => a.id) } } });
-  await Promise.all(attachments.map((a) => attachmentStorage.delete(a.storageKey)));
-
-  await prisma.protoRequest.deleteMany({ where: { techPackVersion: { techPackId: { in: createdTechPackIds } } } });
-  await prisma.techPackRemark.deleteMany({ where: { techPackVersion: { techPackId: { in: createdTechPackIds } } } });
-  await prisma.techPackConfirmation.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackApproval.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackVersion.deleteMany({ where: { techPackId: { in: createdTechPackIds } } });
-  await prisma.techPack.deleteMany({ where: { id: { in: createdTechPackIds } } });
-  await prisma.projectMemberHistory.deleteMany({ where: { projectId: { in: createdProjectIds } } });
-  await prisma.projectMember.deleteMany({ where: { projectId: { in: createdProjectIds } } });
-  await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
-  await cleanupTestUsers();
-  await prisma.$disconnect();
 });
 
 type Agent = Awaited<ReturnType<typeof createTestUser>>["agent"];
@@ -340,6 +324,56 @@ describe("GET /tech-packs and /proto-requests (lists) - layer A/B combined", () 
 
     expect(res.status).toBe(200);
     expect(res.body.some((tp: { id: string }) => tp.id === successor.id)).toBe(false);
+  });
+});
+
+describe("GET /attachments/:id/download - a Proto Request's PO (ADR 0015)", () => {
+  async function setUpPoAttachment() {
+    const fixture = await setUpProject();
+    const created = await createTechPack(fixture.agents.PRODUCT_DESIGNER, fixture.project.id);
+    const techPackId = created.body.id as string;
+    await fixture.agents.ENGINEERING.post(`/tech-packs/${techPackId}/versions/1/confirm`).send({});
+    const decided = await fixture.agents.MANAGEMENT.post(`/tech-packs/${techPackId}/versions/1/decision`).send({
+      decision: "APPROVED",
+    });
+    const protoRequestId = decided.body.protoRequest.id as string;
+
+    const manufacturer = await fixture.agents.PMO.post("/manufacturers").send({ name: "Acme Fabrication" });
+    createdManufacturerIds.push(manufacturer.body.id);
+    await fixture.agents.PMO.post(`/proto-requests/${protoRequestId}/manufacturer`).send({
+      manufacturerId: manufacturer.body.id,
+    });
+    const uploaded = await fixture.agents.FINANCE.post(`/proto-requests/${protoRequestId}/po`).attach(
+      "files",
+      Buffer.from("po bytes"),
+      "po.pdf",
+    );
+
+    return { ...fixture, techPackId, attachmentId: uploaded.body.poAttachment.id as string };
+  }
+
+  // No stage gate beyond layer A here (ADR 0015) - unlike a Tech Pack
+  // attachment, where Management needs the version confirmed and Finance/
+  // Merchandiser need a Proto Request pinning it. Every member/see-all role
+  // in `setUpProject` can already see this Proto Request, full stop.
+  it.each(["ADMIN", "PMO", "PRODUCT_DESIGNER", "ENGINEERING", "MANAGEMENT", "FINANCE", "MERCHANDISER"] as UserRole[])(
+    "%s downloads it",
+    async (role) => {
+      const { agents, attachmentId } = await setUpPoAttachment();
+
+      const res = await agents[role].get(`/attachments/${attachmentId}/download`);
+
+      expect(res.status).toBe(200);
+    },
+  );
+
+  it.each(MEMBER_GATED)("%s 404s as a non-member", async (role) => {
+    const { agent } = await createTestUser(app, role);
+    const { attachmentId } = await setUpPoAttachment();
+
+    const res = await agent.get(`/attachments/${attachmentId}/download`);
+
+    expect(res.status).toBe(404);
   });
 });
 
