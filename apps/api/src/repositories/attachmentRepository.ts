@@ -13,6 +13,10 @@ export function findById(id: string, db: Db = prisma) {
 // ADR 0013: `assertAttachmentVisible` needs the owning Project id and
 // whether the version is confirmed, without loading the full Tech Pack
 // detail include just to answer those two questions.
+//
+// ADR 0015: an Attachment can now also be owned by a ProtoRequest (its PO) -
+// selecting both owner branches here lets the service decide which one
+// applies without a second query.
 export function findWithVisibilityScope(id: string, db: Db = prisma) {
   return db.attachment.findUnique({
     where: { id },
@@ -26,6 +30,8 @@ export function findWithVisibilityScope(id: string, db: Db = prisma) {
           techPack: { select: { projectId: true } },
         },
       },
+      protoRequestId: true,
+      protoRequest: { select: { projectId: true } },
     },
   });
 }
