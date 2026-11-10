@@ -1,45 +1,22 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
-import { attachmentStorage } from "../src/services/storage";
-import { cleanupTestUsers, createTestUser } from "./helpers/auth";
+import { createTestUser } from "./helpers/auth";
+import { cleanupSopFixtures } from "./helpers/cleanup";
 import { addMember } from "./helpers/membership";
 
 const app = createApp();
 
 const createdProjectIds: string[] = [];
 const createdTechPackIds: string[] = [];
+const createdManufacturerIds: string[] = [];
 
 afterAll(async () => {
-  const attachments = await prisma.attachment.findMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-    select: { id: true, storageKey: true },
+  await cleanupSopFixtures({
+    projectIds: createdProjectIds,
+    techPackIds: createdTechPackIds,
+    manufacturerIds: createdManufacturerIds,
   });
-  await prisma.attachment.deleteMany({ where: { id: { in: attachments.map((a) => a.id) } } });
-  await Promise.all(attachments.map((a) => attachmentStorage.delete(a.storageKey)));
-
-  await prisma.protoRequest.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackRemark.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackConfirmation.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackApproval.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackVersion.deleteMany({ where: { techPackId: { in: createdTechPackIds } } });
-  await prisma.techPack.deleteMany({
-    where: { id: { in: createdTechPackIds }, supersedesId: { not: null } },
-  });
-  await prisma.techPack.deleteMany({ where: { id: { in: createdTechPackIds } } });
-  await prisma.projectMemberHistory.deleteMany({ where: { projectId: { in: createdProjectIds } } });
-  await prisma.projectMember.deleteMany({ where: { projectId: { in: createdProjectIds } } });
-  await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
-  await cleanupTestUsers();
-  await prisma.$disconnect();
 });
 
 type Agent = Awaited<ReturnType<typeof createTestUser>>["agent"];
@@ -229,6 +206,133 @@ describe("notifications (ADR 0014)", () => {
     expect(removal.type).toBe("PROJECT_MEMBER_REMOVED");
     expect(removal.link).toBe("/");
     expect(removal.message).toContain(project.code);
+  });
+
+  describe("Slice B (ADR 0015)", () => {
+    async function setUpApprovedProtoRequest() {
+      const { agent: pmo, id: pmoId } = await createTestUser(app, "PMO");
+      const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
+      const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+      const { agent: management } = await createTestUser(app, "MANAGEMENT");
+      const { agent: finance, id: financeId } = await createTestUser(app, "FINANCE");
+      const { agent: merchandiser, id: merchandiserId } = await createTestUser(app, "MERCHANDISER");
+      const project = await createProject(pmo);
+      await addMember(project.id, designerId);
+      await addMember(project.id, engineeringId);
+      await addMember(project.id, financeId);
+      await addMember(project.id, merchandiserId);
+      const created = await createTechPack(designer, project.id);
+      const techPackId = created.body.id as string;
+      await confirmVersion(engineering, techPackId, 1);
+      const decided = await management
+        .post(`/tech-packs/${techPackId}/versions/1/decision`)
+        .send({ decision: "APPROVED" });
+      expect(decided.status).toBe(201);
+
+      const manufacturer = await pmo.post("/manufacturers").send({ name: "Acme Fabrication" });
+      createdManufacturerIds.push(manufacturer.body.id);
+
+      return {
+        pmo,
+        pmoId,
+        finance,
+        financeId,
+        merchandiser,
+        merchandiserId,
+        protoRequestId: decided.body.protoRequest.id as string,
+        manufacturerId: manufacturer.body.id as string,
+      };
+    }
+
+    it("assigning a manufacturer notifies the project's FINANCE members", async () => {
+      const { pmo, financeId, protoRequestId, manufacturerId } = await setUpApprovedProtoRequest();
+
+      const res = await pmo.post(`/proto-requests/${protoRequestId}/manufacturer`).send({ manufacturerId });
+      expect(res.status).toBe(201);
+
+      const notifications = await notificationsFor(financeId);
+      expect(notifications).toHaveLength(1);
+      expect(notifications[0].type).toBe("MANUFACTURER_ASSIGNED");
+      expect(notifications[0].link).toBe(`/proto-requests/${protoRequestId}`);
+    });
+
+    it("uploading the PO notifies every active PMO user, not the uploading Finance actor", async () => {
+      const { pmo, pmoId, finance, financeId, protoRequestId, manufacturerId } = await setUpApprovedProtoRequest();
+      await pmo.post(`/proto-requests/${protoRequestId}/manufacturer`).send({ manufacturerId });
+
+      const res = await finance
+        .post(`/proto-requests/${protoRequestId}/po`)
+        .attach("files", Buffer.from("po bytes"), "po.pdf");
+      expect(res.status).toBe(201);
+
+      const pmoNotifications = await notificationsFor(pmoId);
+      expect(pmoNotifications.filter((n) => n.type === "PROTO_REQUEST_PO_UPLOADED")).toHaveLength(1);
+      expect(await notificationsFor(financeId)).toHaveLength(1); // only MANUFACTURER_ASSIGNED from earlier
+    });
+
+    it("confirming notifies every other active PMO user, not the confirming actor", async () => {
+      const { id: otherPmoId } = await createTestUser(app, "PMO");
+      const { pmo, pmoId, finance, protoRequestId, manufacturerId } = await setUpApprovedProtoRequest();
+      await pmo.post(`/proto-requests/${protoRequestId}/manufacturer`).send({ manufacturerId });
+      await finance.post(`/proto-requests/${protoRequestId}/po`).attach("files", Buffer.from("po"), "po.pdf");
+
+      const res = await pmo
+        .post(`/proto-requests/${protoRequestId}/confirm`)
+        .send({ agreedDeliveryDate: "2027-01-15" });
+      expect(res.status).toBe(201);
+      const protoWorkId = res.body.protoWork.id as string;
+
+      // otherPmoId already got one TECH_PACK_VERSION_APPROVED notification
+      // from setUpApprovedProtoRequest's own approval step (PMO is a
+      // recipient of that event too) - filter to the one this test cares about.
+      const queuedNotifications = (await notificationsFor(otherPmoId)).filter(
+        (n) => n.type === "PROTO_WORK_QUEUED",
+      );
+      expect(queuedNotifications).toHaveLength(1);
+      expect(queuedNotifications[0].link).toBe(`/proto-work/${protoWorkId}`);
+      expect((await notificationsFor(pmoId)).filter((n) => n.type === "PROTO_WORK_QUEUED")).toHaveLength(0);
+    });
+
+    it("assigning to a merchandiser notifies exactly that merchandiser", async () => {
+      const { pmo, finance, merchandiserId, protoRequestId, manufacturerId } = await setUpApprovedProtoRequest();
+      await pmo.post(`/proto-requests/${protoRequestId}/manufacturer`).send({ manufacturerId });
+      await finance.post(`/proto-requests/${protoRequestId}/po`).attach("files", Buffer.from("po"), "po.pdf");
+      const confirmed = await pmo
+        .post(`/proto-requests/${protoRequestId}/confirm`)
+        .send({ agreedDeliveryDate: "2027-01-15" });
+      const protoWorkId = confirmed.body.protoWork.id as string;
+
+      const res = await pmo.post(`/proto-work/${protoWorkId}/assign`).send({ merchandiserId });
+      expect(res.status).toBe(201);
+
+      const notifications = await notificationsFor(merchandiserId);
+      expect(notifications.filter((n) => n.type === "PROTO_WORK_ASSIGNED")).toHaveLength(1);
+    });
+
+    it("completing notifies every active PMO user; a routine delivery-date reconfirmation notifies nobody", async () => {
+      const { pmo, pmoId, finance, merchandiser, merchandiserId, protoRequestId, manufacturerId } =
+        await setUpApprovedProtoRequest();
+      await pmo.post(`/proto-requests/${protoRequestId}/manufacturer`).send({ manufacturerId });
+      await finance.post(`/proto-requests/${protoRequestId}/po`).attach("files", Buffer.from("po"), "po.pdf");
+      const confirmed = await pmo
+        .post(`/proto-requests/${protoRequestId}/confirm`)
+        .send({ agreedDeliveryDate: "2027-01-15" });
+      const protoWorkId = confirmed.body.protoWork.id as string;
+      await pmo.post(`/proto-work/${protoWorkId}/assign`).send({ merchandiserId });
+
+      const beforeReconfirm = await prisma.notification.count();
+      const reconfirmed = await merchandiser
+        .post(`/proto-work/${protoWorkId}/delivery-confirmations`)
+        .send({ deliveryDate: "2027-02-01" });
+      expect(reconfirmed.status).toBe(201);
+      expect(await prisma.notification.count()).toBe(beforeReconfirm);
+
+      const completed = await merchandiser.post(`/proto-work/${protoWorkId}/complete`);
+      expect(completed.status).toBe(201);
+
+      const pmoNotifications = await notificationsFor(pmoId);
+      expect(pmoNotifications.filter((n) => n.type === "PROTO_WORK_COMPLETED")).toHaveLength(1);
+    });
   });
 
   describe("GET /me/notifications and friends", () => {

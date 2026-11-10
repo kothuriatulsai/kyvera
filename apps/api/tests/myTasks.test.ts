@@ -2,45 +2,22 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { UserRole } from "@prisma/client";
 import { createApp } from "../src/app";
 import { prisma } from "../src/repositories/prismaClient";
-import { attachmentStorage } from "../src/services/storage";
-import { cleanupTestUsers, createTestUser } from "./helpers/auth";
+import { createTestUser } from "./helpers/auth";
+import { cleanupSopFixtures } from "./helpers/cleanup";
 import { addMember } from "./helpers/membership";
 
 const app = createApp();
 
 const createdProjectIds: string[] = [];
 const createdTechPackIds: string[] = [];
+const createdManufacturerIds: string[] = [];
 
 afterAll(async () => {
-  const attachments = await prisma.attachment.findMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-    select: { id: true, storageKey: true },
+  await cleanupSopFixtures({
+    projectIds: createdProjectIds,
+    techPackIds: createdTechPackIds,
+    manufacturerIds: createdManufacturerIds,
   });
-  await prisma.attachment.deleteMany({ where: { id: { in: attachments.map((a) => a.id) } } });
-  await Promise.all(attachments.map((a) => attachmentStorage.delete(a.storageKey)));
-
-  await prisma.protoRequest.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackRemark.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackConfirmation.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackApproval.deleteMany({
-    where: { techPackVersion: { techPackId: { in: createdTechPackIds } } },
-  });
-  await prisma.techPackVersion.deleteMany({ where: { techPackId: { in: createdTechPackIds } } });
-  await prisma.techPack.deleteMany({
-    where: { id: { in: createdTechPackIds }, supersedesId: { not: null } },
-  });
-  await prisma.techPack.deleteMany({ where: { id: { in: createdTechPackIds } } });
-  await prisma.projectMemberHistory.deleteMany({ where: { projectId: { in: createdProjectIds } } });
-  await prisma.projectMember.deleteMany({ where: { projectId: { in: createdProjectIds } } });
-  await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
-  await cleanupTestUsers();
-  await prisma.$disconnect();
 });
 
 type Agent = Awaited<ReturnType<typeof createTestUser>>["agent"];
@@ -82,6 +59,8 @@ interface Task {
   type: string;
   techPackId?: string;
   projectId: string;
+  protoRequestId?: string;
+  protoWorkId?: string;
 }
 
 async function tasksFor(agent: Agent): Promise<Task[]> {
@@ -95,7 +74,12 @@ function taskTypesFor(tasks: Task[], techPackId: string) {
 }
 
 describe("GET /me/tasks (ADR 0014)", () => {
-  it.each(["ADMIN", "FINANCE", "MERCHANDISER"] as UserRole[])("is always empty for %s", async (role) => {
+  it("is always empty for ADMIN (ADR 0015 adds Slice B tasks for FINANCE/MERCHANDISER instead)", async () => {
+    const { agent } = await createTestUser(app, "ADMIN");
+    expect(await tasksFor(agent)).toEqual([]);
+  });
+
+  it.each(["FINANCE", "MERCHANDISER"] as UserRole[])("is empty for a fresh %s with no fixtures", async (role) => {
     const { agent } = await createTestUser(app, role);
     expect(await tasksFor(agent)).toEqual([]);
   });
@@ -214,5 +198,120 @@ describe("GET /me/tasks (ADR 0014)", () => {
 
     const afterTypes = (await tasksFor(pmo)).filter((t) => t.projectId === project.id).map((t) => t.type);
     expect(afterTypes).toEqual([]);
+  });
+});
+
+describe("GET /me/tasks - Slice B (ADR 0015)", () => {
+  async function approveTechPack() {
+    const { agent: pmo } = await createTestUser(app, "PMO");
+    const { agent: designer, id: designerId } = await createTestUser(app, "PRODUCT_DESIGNER");
+    const { agent: engineering, id: engineeringId } = await createTestUser(app, "ENGINEERING");
+    const { agent: management } = await createTestUser(app, "MANAGEMENT");
+    const { agent: finance, id: financeId } = await createTestUser(app, "FINANCE");
+    const { agent: merchandiser, id: merchandiserId } = await createTestUser(app, "MERCHANDISER");
+    const project = await createProject(pmo);
+    await addMember(project.id, designerId);
+    await addMember(project.id, engineeringId);
+    await addMember(project.id, financeId);
+    await addMember(project.id, merchandiserId);
+    const created = await createTechPack(designer, project.id);
+    const techPackId = created.body.id as string;
+    expect((await confirmVersion(engineering, techPackId, 1)).status).toBe(201);
+    const decided = await decide(management, techPackId, 1, { decision: "APPROVED" });
+    expect(decided.status).toBe(201);
+    return { pmo, finance, financeId, merchandiser, merchandiserId, protoRequestId: decided.body.protoRequest.id as string };
+  }
+
+  async function assignManufacturer(pmo: Agent, protoRequestId: string) {
+    const manufacturer = await pmo.post("/manufacturers").send({ name: "Acme Fabrication" });
+    createdManufacturerIds.push(manufacturer.body.id);
+    const res = await pmo.post(`/proto-requests/${protoRequestId}/manufacturer`).send({
+      manufacturerId: manufacturer.body.id,
+    });
+    expect(res.status).toBe(201);
+  }
+
+  it("PMO sees 'Assign manufacturer' for a freshly approved Proto Request", async () => {
+    const { pmo, protoRequestId } = await approveTechPack();
+
+    const types = (await tasksFor(pmo))
+      .filter((t) => t.protoRequestId === protoRequestId)
+      .map((t) => t.type);
+
+    expect(types).toEqual(["ASSIGN_MANUFACTURER"]);
+  });
+
+  it("FINANCE sees 'Upload PO' once a manufacturer is assigned; PMO's task becomes 'Confirm' once it's uploaded", async () => {
+    const { pmo, finance, protoRequestId } = await approveTechPack();
+    await assignManufacturer(pmo, protoRequestId);
+
+    expect(
+      (await tasksFor(finance)).filter((t) => t.protoRequestId === protoRequestId).map((t) => t.type),
+    ).toEqual(["UPLOAD_PO"]);
+    // PMO's own task has already cleared (manufacturer assigned) and hasn't
+    // appeared again yet (no PO to confirm) - nothing for them to do here.
+    expect((await tasksFor(pmo)).filter((t) => t.protoRequestId === protoRequestId)).toEqual([]);
+
+    const uploaded = await finance
+      .post(`/proto-requests/${protoRequestId}/po`)
+      .attach("files", Buffer.from("po bytes"), "po.pdf");
+    expect(uploaded.status).toBe(201);
+
+    expect((await tasksFor(finance)).filter((t) => t.protoRequestId === protoRequestId)).toEqual([]);
+    expect(
+      (await tasksFor(pmo)).filter((t) => t.protoRequestId === protoRequestId).map((t) => t.type),
+    ).toEqual(["CONFIRM_PROTO_REQUEST"]);
+  });
+
+  it("PMO sees 'Assign merchandiser' once confirmed, clearing once assigned", async () => {
+    const { pmo, finance, merchandiserId, protoRequestId } = await approveTechPack();
+    await assignManufacturer(pmo, protoRequestId);
+    await finance.post(`/proto-requests/${protoRequestId}/po`).attach("files", Buffer.from("po bytes"), "po.pdf");
+    const confirmed = await pmo
+      .post(`/proto-requests/${protoRequestId}/confirm`)
+      .send({ agreedDeliveryDate: "2027-01-15" });
+    expect(confirmed.status).toBe(201);
+    const protoWorkId = confirmed.body.protoWork.id as string;
+
+    expect(
+      (await tasksFor(pmo)).filter((t) => t.protoWorkId === protoWorkId).map((t) => t.type),
+    ).toEqual(["ASSIGN_MERCHANDISER"]);
+
+    const assigned = await pmo.post(`/proto-work/${protoWorkId}/assign`).send({ merchandiserId });
+    expect(assigned.status).toBe(201);
+
+    expect((await tasksFor(pmo)).filter((t) => t.protoWorkId === protoWorkId)).toEqual([]);
+  });
+
+  it("MERCHANDISER sees 'Reconfirm delivery date' once the reconfirmation interval has elapsed, clearing on a fresh confirmation", async () => {
+    const { pmo, finance, merchandiser, merchandiserId, protoRequestId } = await approveTechPack();
+    await assignManufacturer(pmo, protoRequestId);
+    await finance.post(`/proto-requests/${protoRequestId}/po`).attach("files", Buffer.from("po bytes"), "po.pdf");
+    const confirmed = await pmo
+      .post(`/proto-requests/${protoRequestId}/confirm`)
+      .send({ agreedDeliveryDate: "2027-01-15" });
+    const protoWorkId = confirmed.body.protoWork.id as string;
+    await pmo.post(`/proto-work/${protoWorkId}/assign`).send({ merchandiserId });
+
+    // Freshly assigned - not stale yet.
+    expect((await tasksFor(merchandiser)).filter((t) => t.protoWorkId === protoWorkId)).toEqual([]);
+
+    // Back-date the assignment past the 7-day reconfirmation interval
+    // (taskService.DELIVERY_RECONFIRMATION_INTERVAL_DAYS) - direct write,
+    // bypassing the API, since nothing in the API moves time.
+    const staleAssignedAt = new Date();
+    staleAssignedAt.setDate(staleAssignedAt.getDate() - 8);
+    await prisma.protoWork.update({ where: { id: protoWorkId }, data: { assignedAt: staleAssignedAt } });
+
+    expect(
+      (await tasksFor(merchandiser)).filter((t) => t.protoWorkId === protoWorkId).map((t) => t.type),
+    ).toEqual(["RECONFIRM_DELIVERY_DATE"]);
+
+    const reconfirmed = await merchandiser
+      .post(`/proto-work/${protoWorkId}/delivery-confirmations`)
+      .send({ deliveryDate: "2027-02-01" });
+    expect(reconfirmed.status).toBe(201);
+
+    expect((await tasksFor(merchandiser)).filter((t) => t.protoWorkId === protoWorkId)).toEqual([]);
   });
 });

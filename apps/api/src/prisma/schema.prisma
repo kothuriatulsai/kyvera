@@ -67,6 +67,16 @@ model User {
   projectMemberHistoryBy   ProjectMemberHistory[] @relation("ProjectMemberHistoryActor")
   notifications            Notification[]
 
+  // Slice B (ADR 0015) - Proto Request Stage 4 / Proto Work Stage 5.
+  manufacturersCreated       ManufacturerMaster[]            @relation("ManufacturerCreator")
+  manufacturerAssignments    ProtoRequest[]                  @relation("ProtoRequestManufacturerAssigner")
+  protoRequestConfirmations  ProtoRequest[]                  @relation("ProtoRequestConfirmer")
+  protoWorkAssignedTo        ProtoWork[]                     @relation("ProtoWorkMerchandiser")
+  protoWorkAssignedBy        ProtoWork[]                     @relation("ProtoWorkAssigner")
+  protoWorkCompletions       ProtoWork[]                     @relation("ProtoWorkCompleter")
+  protoWorkDeliveryConfirmed ProtoWorkDeliveryConfirmation[] @relation("ProtoWorkDeliveryConfirmer")
+  protoWorkUpdatesAuthored   ProtoWorkUpdate[]               @relation("ProtoWorkUpdateAuthor")
+
   @@map("users")
 }
 
@@ -149,6 +159,7 @@ model Project {
 
   techPacks     TechPack[]
   protoRequests ProtoRequest[]
+  protoWork     ProtoWork[]
   members       ProjectMember[]
   memberHistory ProjectMemberHistory[]
 
@@ -274,6 +285,12 @@ model Attachment {
   techPackVersionId String?          @map("tech_pack_version_id") @db.Uuid
   techPackVersion   TechPackVersion? @relation(fields: [techPackVersionId], references: [id], onDelete: Restrict)
 
+  // Slice B (ADR 0015): the PO Finance uploads against a ProtoRequest -
+  // @unique enforces one PO per ProtoRequest at the DB level, same shape as
+  // TechPackConfirmation.techPackVersionId.
+  protoRequestId String?       @unique @map("proto_request_id") @db.Uuid
+  protoRequest   ProtoRequest? @relation("ProtoRequestPo", fields: [protoRequestId], references: [id], onDelete: Restrict)
+
   @@index([techPackVersionId])
   @@map("attachments")
 }
@@ -340,8 +357,150 @@ model ProtoRequest {
   techPackVersion   TechPackVersion @relation(fields: [techPackVersionId], references: [id], onDelete: Restrict)
   createdAt         DateTime        @default(now()) @map("created_at")
 
+  // -------------------------------------------------------------------------
+  // Slice B (ADR 0015), Stage 4 - populated progressively (PMO assigns a
+  // manufacturer, Finance uploads the PO, PMO confirms), locked in by
+  // `confirmedAt`. All nullable rather than a status enum, for the same
+  // reason TechPackConfirmation/TechPackApproval aren't a status flag on
+  // TechPack (ADR 0006): each step needs its own who/when, not just a state.
+  // -------------------------------------------------------------------------
+  manufacturerId           String?             @map("manufacturer_id") @db.Uuid
+  manufacturer             ManufacturerMaster? @relation(fields: [manufacturerId], references: [id], onDelete: Restrict)
+  manufacturerAssignedAt   DateTime?           @map("manufacturer_assigned_at")
+  manufacturerAssignedById String?             @map("manufacturer_assigned_by") @db.Uuid
+  manufacturerAssignedBy   User?               @relation("ProtoRequestManufacturerAssigner", fields: [manufacturerAssignedById], references: [id], onDelete: Restrict)
+  // Step 16's order confirmation / commercial negotiation note.
+  commercialNotes          String?             @map("commercial_notes")
+
+  // The PO Finance uploads (step 17) - back-relation only; Attachment carries
+  // the owning FK (protoRequestId), same "owner column lives on Attachment"
+  // pattern as techPackVersionId. uploadedAt/uploadedBy are read off the
+  // Attachment itself, not duplicated here.
+  poAttachment Attachment? @relation("ProtoRequestPo")
+
+  // Step 18/19: the agreed delivery schedule and PMO's confirmation note,
+  // locked in when the Proto Request is confirmed and ProtoWork is created.
+  agreedDeliveryDate DateTime? @map("agreed_delivery_date") @db.Date
+  confirmationNote   String?   @map("confirmation_note")
+  confirmedAt        DateTime? @map("confirmed_at")
+  confirmedById      String?   @map("confirmed_by") @db.Uuid
+  confirmedBy        User?     @relation("ProtoRequestConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
+
+  protoWork ProtoWork?
+
   @@index([projectId, techPackVersionId])
   @@map("proto_requests")
+}
+
+// =============================================================================
+// Slice B (ADR 0015) - Manufacturer master, Proto Request Stage 4 fields
+// (above), Proto Work Stage 5. Same onDelete: Restrict standing rule as the
+// rest of this domain (ADR 0006 point 9).
+// =============================================================================
+
+// Master data, not a `users` row (ADR 0006 point 7) - staff select a
+// Manufacturer and record activity against it, no portal account for the
+// MVP. Deliberately no `code`: the SOP's own ID/traceability table (section
+// 12) lists one for every lifecycle record it names and not for
+// Manufacturer - a signal it isn't part of that chain, same framing as
+// "master data, not a lifecycle entity". Deactivated, never deleted, like
+// User - every FK to it is onDelete: Restrict.
+model ManufacturerMaster {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  contactName  String?  @map("contact_name")
+  contactEmail String?  @map("contact_email")
+  contactPhone String?  @map("contact_phone")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdById  String   @map("created_by") @db.Uuid
+  createdBy    User     @relation("ManufacturerCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  protoRequests ProtoRequest[]
+
+  @@map("manufacturer_masters")
+}
+
+enum ProtoWorkStatus {
+  QUEUED
+  ASSIGNED
+  COMPLETED
+
+  @@map("proto_work_status")
+}
+
+// Stage 5's output - one row per confirmed ProtoRequest (1:1), created in
+// the same transaction as ProtoRequest.confirm. `projectId` is denormalized
+// directly, same choice ProtoRequest itself already made (reachable via
+// protoRequest.project too, but every list query at this level filters by
+// project, same as every sibling table).
+model ProtoWork {
+  id             String          @id @default(uuid()) @db.Uuid
+  code           String          @unique @default(dbgenerated("format_code('PW'::text, nextval('pw_code_seq'::regclass))"))
+  projectId      String          @map("project_id") @db.Uuid
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  protoRequestId String          @unique @map("proto_request_id") @db.Uuid
+  protoRequest   ProtoRequest    @relation(fields: [protoRequestId], references: [id], onDelete: Restrict)
+  status         ProtoWorkStatus @default(QUEUED)
+
+  // Step 20: PMO assigns from the Work Queue. Workload-tracking metadata,
+  // not an access-control boundary - completing/updating this ProtoWork
+  // isn't restricted to this specific person (see ADR 0015).
+  assignedMerchandiserId String?   @map("assigned_merchandiser_id") @db.Uuid
+  assignedMerchandiser   User?     @relation("ProtoWorkMerchandiser", fields: [assignedMerchandiserId], references: [id], onDelete: Restrict)
+  assignedAt             DateTime? @map("assigned_at")
+  assignedById           String?   @map("assigned_by") @db.Uuid
+  assignedBy             User?     @relation("ProtoWorkAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  // Step 22's "periodic delivery-date confirmation" - current state here,
+  // paired with the append-only ProtoWorkDeliveryConfirmation history below.
+  // Seeded from protoRequest.agreedDeliveryDate when this row is created.
+  currentDeliveryDate DateTime @map("current_delivery_date") @db.Date
+
+  // Step 23.
+  completedAt   DateTime? @map("completed_at")
+  completedById String?   @map("completed_by") @db.Uuid
+  completedBy   User?     @relation("ProtoWorkCompleter", fields: [completedById], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  deliveryConfirmations ProtoWorkDeliveryConfirmation[]
+  updates               ProtoWorkUpdate[]
+
+  @@index([projectId])
+  @@map("proto_work")
+}
+
+// Append-only history paired with ProtoWork.currentDeliveryDate as current
+// state - same "current-state table + paired history table" shape as
+// ProjectMember/ProjectMemberHistory and TechPack's void fields.
+model ProtoWorkDeliveryConfirmation {
+  id            String    @id @default(uuid()) @db.Uuid
+  protoWorkId   String    @map("proto_work_id") @db.Uuid
+  protoWork     ProtoWork @relation(fields: [protoWorkId], references: [id], onDelete: Restrict)
+  deliveryDate  DateTime  @map("delivery_date") @db.Date
+  confirmedById String    @map("confirmed_by") @db.Uuid
+  confirmedBy   User      @relation("ProtoWorkDeliveryConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
+  notes         String?
+  confirmedAt   DateTime  @default(now()) @map("confirmed_at")
+
+  @@index([protoWorkId])
+  @@map("proto_work_delivery_confirmations")
+}
+
+// Step 21's "remarks/chat updates" - same scoped-functional-table shape as
+// TechPackRemark, not the generic `comments` table ADR 0004 deferred.
+model ProtoWorkUpdate {
+  id          String    @id @default(uuid()) @db.Uuid
+  protoWorkId String    @map("proto_work_id") @db.Uuid
+  protoWork   ProtoWork @relation(fields: [protoWorkId], references: [id], onDelete: Restrict)
+  authorId    String    @map("author_id") @db.Uuid
+  author      User      @relation("ProtoWorkUpdateAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  body        String
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([protoWorkId])
+  @@map("proto_work_updates")
 }
 
 // ADR 0014: a stored, append-only event log, written in the same
@@ -374,6 +533,13 @@ enum NotificationType {
   TECH_PACK_VERSION_REJECTED
   PROJECT_MEMBER_ADDED
   PROJECT_MEMBER_REMOVED
+
+  // Slice B (ADR 0015).
+  MANUFACTURER_ASSIGNED
+  PROTO_REQUEST_PO_UPLOADED
+  PROTO_WORK_QUEUED
+  PROTO_WORK_ASSIGNED
+  PROTO_WORK_COMPLETED
 
   @@map("notification_type")
 }

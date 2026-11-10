@@ -206,3 +206,16 @@ export async function assertAttachmentVisible(
     throw new NotFoundError("Attachment not found");
   }
 }
+
+/**
+ * ADR 0015: the other Attachment owner branch - a Proto Request's PO. No
+ * extra stage gate beyond layer A, mirroring ProtoRequest's own "no further
+ * stage-level restriction beyond layer A" rule (ADR 0013) - anyone who can
+ * see the Proto Request can see its PO.
+ */
+export async function assertProtoRequestPoVisible(
+  actor: Actor,
+  info: { projectId: string },
+): Promise<void> {
+  await assertProjectVisible(actor, info.projectId);
+}

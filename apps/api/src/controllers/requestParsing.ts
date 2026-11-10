@@ -34,3 +34,11 @@ export function nullableDate(body: Record<string, unknown>, field: string): Date
   if (body[field] === null) return null;
   return optionalDate(body, field);
 }
+
+export function requireDate(body: Record<string, unknown>, field: string): Date {
+  const value = optionalDate(body, field);
+  if (value === undefined) {
+    throw new ValidationError(`${field} is required and must be an ISO date string`);
+  }
+  return value;
+}

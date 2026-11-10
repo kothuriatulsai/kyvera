@@ -28,9 +28,33 @@ export function generateTemporaryPassword(): string {
   return randomBytes(12).toString("base64url");
 }
 
-// argon2id with the library's defaults (memory-hard; OWASP's first choice).
+// argon2id with the library's defaults (memory-hard; OWASP's first choice) -
+// except under the test suite, which uses the same algorithm with much
+// cheaper cost parameters. Memory-hardness is exactly what makes argon2
+// expensive on *every* call, test or not; under the full suite's combined
+// CPU load, real-cost hashing pushed a handful of password-flow tests
+// (users.test.ts's mustChangePassword/reset round-trips, which hash and
+// verify more than once per test) past their 5s timeout - intermittently,
+// not from a logic bug, just real argon2 work piling up. Gated on
+// `NODE_ENV === "test"` specifically (not `!== "production"`), so local dev
+// and any future staging environment still hash at full, real-world cost -
+// only vitest's own run (which sets this automatically, confirmed by
+// probing it directly) gets the cheap path.
+type Argon2HashOptions = NonNullable<Parameters<typeof argon2.hash>[1]>;
+
+const TEST_ARGON2_OPTIONS: Argon2HashOptions = {
+  type: argon2.argon2id,
+  memoryCost: 2 ** 10,
+  timeCost: 2,
+  parallelism: 1,
+};
+
+function argon2Options(): Argon2HashOptions {
+  return process.env.NODE_ENV === "test" ? TEST_ARGON2_OPTIONS : { type: argon2.argon2id };
+}
+
 export function hashPassword(password: string): Promise<string> {
-  return argon2.hash(password, { type: argon2.argon2id });
+  return argon2.hash(password, argon2Options());
 }
 
 export function isArgon2Hash(value: string): boolean {
